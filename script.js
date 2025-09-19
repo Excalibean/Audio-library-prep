@@ -15,13 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadFile(file) {
         if (!file) return;
-        // revoke previous object URL
+        // remove previous audio file (a URL object)
         if (currentAudio) {
             URL.revokeObjectURL(currentAudio);
             currentAudio = null;
         }
 
-        // create audio element once
+        //play button fucntionality
         if (!audio) {
             audio = new Audio();
             audio.preload = 'metadata';
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (playButton) playButton.textContent = 'Play';
             });
         } else {
-            // pause before changing source
+            //pause before audio change
             audio.pause();
         }
 
@@ -46,20 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (playButton) playButton.disabled = false;
     }
 
-    // handle upload form submit
-    uploadForm?.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const files = fileInput.files;
-        if (files && files.length) loadFile(files[0]); // load first selected file
-    });
-
-    // handle direct file selection
-    fileInput?.addEventListener('change', () => {
-        const files = fileInput.files;
-        if (files && files.length) loadFile(files[0]);
-    });
-
-    // play / pause toggle
+    //play/pause button behavior
     playButton?.addEventListener('click', () => {
         if (!audio) return;
         if (audio.paused) {
@@ -70,18 +57,31 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.pause();
         }
     });
+    //upload form
+    uploadForm?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const files = fileInput.files;
+        if (files && files.length) loadFile(files[0]); // load first selected file
+    });
 
-    // speed slider behavior
+    //file selection
+    fileInput?.addEventListener('change', () => {
+        const files = fileInput.files;
+        if (files && files.length) loadFile(files[0]);
+    });
+
+
+    //speed slider behavior
     speedSlider?.addEventListener('input', () => {
         const v = parseFloat(speedSlider.value || '1');
         setSpeedLabel(v);
         if (audio) audio.playbackRate = v;
     });
 
-    // initialize label
+    //initialize label for speed slider
     setSpeedLabel(parseFloat(speedSlider?.value || '1'));
 
-    // cleanup object URL on unload
+    //cleanup object URL on unload
     window.addEventListener('beforeunload', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
     });
