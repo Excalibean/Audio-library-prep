@@ -14,14 +14,18 @@
     <main>
         <section id="upload">
             <h2>Upload Audio Files</h2>
-            <form id="upload-form">
+            <form id="uploadForm">
                 <input type="file" id="audio-file" accept=".mp3,.wav" multiple>
                 <button type="submit">Upload</button>
             </form>
         </section>
         <section id="library">
             <h2>
-                Slider Here
+                Playback Speed
+                <div id="controls">
+                <label>Speed: <span id="speed-label">1.0x</span></label>
+                <input type="range" id="speed-slider" min="0.5" max="2.0" step="0.01" value="1">
+            </div>
             </h2>
         </section>
     <script src="script.js"></script>
