@@ -1,0 +1,35 @@
+body {
+    font: 100%/1.5 system-ui, sans-serif;
+    display: flex;
+    flex-flow: column;
+    max-width: 80em;
+    min-height: 100vh;
+    box-sizing: border-box;
+    margin: auto;
+    padding: 1em;
+}
+
+html, body {
+    margin: 0;
+    padding: 5;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    justify-content: center; /* Center horizontally */
+    align-items: center;     /* Center vertically */
+}
+
+header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    align-items: baseline;
+
+}
+
+h2 {
+    margin: 0;
+    font-weight: normal;
+    font-size: 2e;
+    color: black
+}
