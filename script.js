@@ -6,57 +6,88 @@ document.addEventListener('DOMContentLoaded', () => {
     const playButton = document.getElementById('play-button');
     const currentFile = document.getElementById('current-file');
 
-    let audio = null;
-    let currentAudio = null; //this is a url object
+    let audioContext = null;
+    let audioBuffer = null;
+    let currentSource = null;
+    let playbackRate = 1; // Default playback rate
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
     }
 
-    function loadFile(file) {
+    async function loadFile(file) {
         if (!file) return;
-        // remove previous audio file (a URL object)
-        if (currentAudio) {
-            URL.revokeObjectURL(currentAudio);
-            currentAudio = null;
+
+        //stop current source and reset playback speed if one is being played already
+        if(currentSource) {
+            currentSource.stop();
+            playbackRate = 1;
         }
 
-        //play button fucntionality
-        if (!audio) {
-            audio = new Audio();
-            audio.preload = 'metadata';
-            audio.addEventListener('ended', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-            audio.addEventListener('play', () => {
-                if (playButton) playButton.textContent = 'Pause';
-            });
-            audio.addEventListener('pause', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-        } else {
-            //pause before audio change
-            audio.pause();
+        // initialize AudioContext if not already done
+        if (!audioContext) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContext();
         }
 
-        currentAudio = URL.createObjectURL(file);
-        audio.src = currentAudio;
-        audio.playbackRate = parseFloat(speedSlider?.value || '1');
-        if (currentFile) currentFile.textContent = file.name;
-        if (playButton) playButton.disabled = false;
+        //decode audio data
+        const arrayBuffer = await file.arrayBuffer();
+        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        //update UI on screen and set values to defaults
+        if(currentFile) currentFile.textContent = file.name;
+        if(playButton) playButton.disabled = false;
+        if(speedSlider) speedSlider.value = '1';
+        setSpeedLabel(1);
+    }
+    
+    async function playAudio() {
+        if (!audioBuffer || !audioContext) return;
+
+        //resume the audio context if suspended
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        //stop current playback if playing already
+        if(currentSource) {
+            currentSource.stop();
+        }
+
+        //create a new buffer source
+        currentSource = audioContext.createBufferSource();
+        currentSource.buffer = audioBuffer;
+        currentSource.playbackRate.value = playbackRate; //set to current speed on slider
+        currentSource.connect(audioContext.destination);
+
+        //start playback
+        currentSource.start();
+        playButton.textContent = 'Pause';
+
+        //when playback ends, reset buttons
+        currentSource.onended = () => {
+            playButton.textContent = 'Play';
+            currentSource = null;
+        }
+    }
+
+    function pauseAudio() {
+        if (currentSource) {
+            currentSource.stop();
+            currentSource = null;
+            playButton.textContent = 'Play';
+        }
     }
 
     //play/pause button behavior
     playButton?.addEventListener('click', () => {
-        if (!audio) return;
-        if (audio.paused) {
-            audio.play().catch(err => {
-                console.error('Play failed:', err);
-            });
+        if (currentSource) {
+            pauseAudio();
         } else {
-            audio.pause();
+            playAudio();
         }
     });
+    
     //upload form
     uploadForm?.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -73,16 +104,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     //speed slider behavior
     speedSlider?.addEventListener('input', () => {
-        const v = parseFloat(speedSlider.value || '1');
-        setSpeedLabel(v);
-        if (audio) audio.playbackRate = v;
+        playbackRate = parseFloat(speedSlider.value || '1');
+        setSpeedLabel(playbackRate);
+
+        // Update playback rate for the current source
+        if (currentSource) {
+            currentSource.playbackRate.value = playbackRate;
+        }
     });
 
     //initialize label for speed slider
     setSpeedLabel(parseFloat(speedSlider?.value || '1'));
 
-    //cleanup object URL on unload
-    window.addEventListener('beforeunload', () => {
-        if (currentAudio) URL.revokeObjectURL(currentAudio);
-    });
+    
 });
