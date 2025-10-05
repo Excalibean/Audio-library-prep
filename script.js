@@ -4,12 +4,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const speedSlider = document.getElementById('speed-slider');
     const speedLabel = document.getElementById('speed-label');
     const playButton = document.getElementById('play-button');
+    const rewindButton = document.getElementById('rewind-button');
     const currentFile = document.getElementById('current-file');
 
     let audioContext = null;
     let audioBuffer = null;
     let currentSource = null;
     let playbackRate = 1; // Default playback rate
+    let playbackPosition = null;
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -18,13 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadFile(file) {
         if (!file) return;
 
-        //stop current source and reset playback speed if one is being played already
-        if(currentSource) {
-            currentSource.stop();
-            playbackRate = 1;
-        }
-
-        // initialize AudioContext if not already done
+        //initialize AudioContext if not already done
         if (!audioContext) {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioContext = new AudioContext();
@@ -37,10 +33,26 @@ document.addEventListener('DOMContentLoaded', () => {
         //update UI on screen and set values to defaults
         if(currentFile) currentFile.textContent = file.name;
         if(playButton) playButton.disabled = false;
+        if(rewindButton) rewindButton.disabled = false;
         if(speedSlider) speedSlider.value = '1';
         setSpeedLabel(1);
+
+        //reset playback position and speed
+        playbackPosition = 0;
+        playbackRate = 1;
     }
-    
+
+    function createSource(startFrom = 0) {
+        //create a new AudioBufferSourceNode
+        currentSource = audioContext.createBufferSource();
+        currentSource.buffer = audioBuffer;
+        currentSource.playbackRate.value = playbackRate;
+        currentSource.connect(audioContext.destination);
+
+        //start playback from the specified position
+        currentSource.start(0, startFrom);
+    }
+
     async function playAudio() {
         if (!audioBuffer || !audioContext) return;
 
@@ -49,43 +61,57 @@ document.addEventListener('DOMContentLoaded', () => {
             await audioContext.resume();
         }
 
-        //stop current playback if playing already
-        if(currentSource) {
+        //stop the current source if it exists
+        if (currentSource) {
             currentSource.stop();
-        }
-
-        //create a new buffer source
-        currentSource = audioContext.createBufferSource();
-        currentSource.buffer = audioBuffer;
-        currentSource.playbackRate.value = playbackRate; //set to current speed on slider
-        currentSource.connect(audioContext.destination);
-
-        //start playback
-        currentSource.start();
-        playButton.textContent = 'Pause';
-
-        //when playback ends, reset buttons
-        currentSource.onended = () => {
-            playButton.textContent = 'Play';
             currentSource = null;
         }
+
+        //start playback
+        createSource(playbackPosition);
+        playButton.textContent = 'Pause';
     }
 
     function pauseAudio() {
-        if (currentSource) {
-            currentSource.stop();
-            currentSource = null;
-            playButton.textContent = 'Play';
+        if (audioContext.state === 'running') {
+            //update playback position
+            playbackPosition += audioContext.currentTime;
+
+            audioContext.suspend().then(() => {
+                playButton.textContent = 'Play';
+            });
         }
     }
 
-    //play/pause button behavior
-    playButton?.addEventListener('click', () => {
+    function rewindAudio() {
+        if (!audioBuffer || !audioContext) return;
+
+        //rewind by 1 second
+        playbackPosition = Math.max(0, playbackPosition - 1);
+
+        //stop current playback
         if (currentSource) {
+            currentSource.stop();
+            currentSource = null;
+        }
+
+        //start playback from the rewound position
+        createSource(playbackPosition);
+        playButton.textContent = 'Pause';
+    }
+
+    //play/pause button behavior
+    playButton.addEventListener('click', () => {
+        if (audioContext.state === 'running') {
             pauseAudio();
         } else {
             playAudio();
         }
+    });
+
+    //rewind button behavior
+    rewindButton.addEventListener('click', () => {
+        rewindAudio();
     });
     
     //upload form
