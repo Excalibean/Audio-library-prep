@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         //start playback from the specified position
         currentSource.start(0, startFrom);
+        
     }
 
     async function playAudio() {
@@ -117,10 +118,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    //rewind button behavior
+    //rewind button behavior + rewind bits and bobbles for holding down behavior
     rewindButton.addEventListener('click', () => {
         rewindAudio();
     });
+
+     function startRewind() {
+        rewindAudio(); // Execute immediately on first press
+        rewindInterval = setInterval(() => {
+            rewindAudio();
+        }, 200); // Rewind every 200ms while held (adjust as needed)
+    }
+
+    function stopRewind() {
+        if (rewindInterval) {
+            clearInterval(rewindInterval);
+            rewindInterval = null;
+        }
+    }
+
+    //rewind event listeners for holding down button
+    rewindButton.addEventListener('mousedown', startRewind);
+    rewindButton.addEventListener('mouseup', stopRewind);
+    rewindButton.addEventListener('mouseleave', stopRewind); // Stop if mouse leaves button
     
     //upload form
     uploadForm?.addEventListener('submit', (e) => {
