@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rewindAudio(); // Execute immediately on first press
         rewindInterval = setInterval(() => {
             rewindAudio();
-        }, 200); // Rewind every 200ms while held (adjust as needed)
+        }, 400); // Rewind every 400ms while held (adjust as needed)
     }
 
     function stopRewind() {
