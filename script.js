@@ -11,7 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioBuffer = null;
     let currentSource = null;
     let playbackRate = 1; // Default playback rate
-    let playbackPosition = null;
+    let playbackPosition = 0;
+    let startTime = 0;
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -69,13 +70,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         //start playback
         createSource(playbackPosition);
+        startTime = audioContext.currentTime;
         playButton.textContent = 'Pause';
     }
 
     function pauseAudio() {
         if (audioContext.state === 'running') {
             //update playback position
-            playbackPosition += audioContext.currentTime;
+            playbackPosition += audioContext.currentTime - startTime;
 
             audioContext.suspend().then(() => {
                 playButton.textContent = 'Play';
@@ -85,6 +87,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function rewindAudio() {
         if (!audioBuffer || !audioContext) return;
+
+        //if audio is playing, update the playback position
+        if(currentSource && audioContext.state === 'running') {
+            playbackPosition += audioContext.currentTime - startTime;
+        }
 
         //rewind by 1 second
         playbackPosition = Math.max(0, playbackPosition - 1);
@@ -97,6 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         //start playback from the rewound position
         createSource(playbackPosition);
+        startTime = audioContext.currentTime;
         playButton.textContent = 'Pause';
     }
 
