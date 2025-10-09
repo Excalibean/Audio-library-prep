@@ -5,12 +5,40 @@ document.addEventListener('DOMContentLoaded', () => {
     const speedLabel = document.getElementById('speed-label');
     const playButton = document.getElementById('play-button');
     const currentFile = document.getElementById('current-file');
+    const rewindButton = document.getElementById('rewind-button');
 
     let audio = null;
     let currentAudio = null; //this is a url object
+    let audioContext = null;
+    let sourceNode = null;
+    let gainNode = null;
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
+    }
+
+    function initWebAudio() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (!gainNode) {
+            gainNode = audioContext.createGain();
+            gainNode.connect(audioContext.destination);
+        }
+        if (!sourceNode && audio) {
+            sourceNode = audioContext.createMediaElementSource(audio);
+            sourceNode.connect(gainNode);
+        }
+    }
+
+    function rewind(seconds = 5) {
+        if (!audio) return;
+        audio.currentTime = Math.max(0, audio.currentTime - seconds);
+    }
+
+    function fastForward(seconds = 5) {
+        if (!audio) return;
+        audio.currentTime = Math.min(audio.duration, audio.currentTime + seconds);
     }
 
     function loadFile(file) {
@@ -44,11 +72,18 @@ document.addEventListener('DOMContentLoaded', () => {
         audio.playbackRate = parseFloat(speedSlider?.value || '1');
         if (currentFile) currentFile.textContent = file.name;
         if (playButton) playButton.disabled = false;
+        if (rewindButton) rewindButton.disabled = false;
     }
 
     //play/pause button behavior
     playButton?.addEventListener('click', () => {
         if (!audio) return;
+        
+        // Initialize Web Audio API on first play (user interaction required)
+        if (!audioContext) {
+            initWebAudio();
+        }
+        
         if (audio.paused) {
             audio.play().catch(err => {
                 console.error('Play failed:', err);
@@ -57,6 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.pause();
         }
     });
+
+    //rewind button behavior
+    rewindButton?.addEventListener('click', () => {
+        rewind(1); // Rewind 1 second
+    });
+
     //upload form
     uploadForm?.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -84,5 +125,6 @@ document.addEventListener('DOMContentLoaded', () => {
     //cleanup object URL on unload
     window.addEventListener('beforeunload', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
+        if (audioContext) audioContext.close();
     });
 });
