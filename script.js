@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopEnd = null;
     let loopInterval = null;
     let loopRepetitionDelay = 0;
+    const FADE_TIME = 0.02; // 20ms fade in/out to prevent clicks
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -39,6 +40,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!sourceNode && audio) {
             sourceNode = audioContext.createMediaElementSource(audio);
             sourceNode.connect(gainNode);
+        }
+    }
+
+    //apply fade in/out to prevent clicks
+    function applyFade(fadeIn = true) {
+        if (!gainNode || !audioContext) return;
+        
+        const now = audioContext.currentTime;
+        gainNode.gain.cancelScheduledValues(now);
+        
+        if (fadeIn) {
+            // Fade in from 0 to 1 over FADE_TIME
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(1, now + FADE_TIME);
+        } else {
+            // Fade out from current to 0 over FADE_TIME
+            gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+            gainNode.gain.linearRampToValueAtTime(0, now + FADE_TIME);
         }
     }
 
@@ -60,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isLooping = !isLooping;
         
         if (isLooping) {
-            // Get loop length from input
+            //get loop length from input
             const loopLength = parseFloat(loopLengthInput?.value || 1);
             const halfLoop = loopLength / 2;
             
@@ -68,10 +87,15 @@ document.addEventListener('DOMContentLoaded', () => {
             loopStart = Math.max(0, audio.currentTime - halfLoop);
             loopEnd = Math.min(audio.duration, audio.currentTime + halfLoop);
             
-            // Get delay from input
+            //get delay from input
             loopRepetitionDelay = parseFloat(loopDelayInput?.value || 0);
             
             if (loopButton) loopButton.textContent = '🔁 Loop: ON';
+
+            //apply fade in when starting loop
+            if (audioContext && gainNode) {
+                applyFade(true);
+            }
 
             //if delay is not 0, start delay based loop
             if(loopRepetitionDelay > 0) {
@@ -104,6 +128,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         loopInterval = setInterval(() => {
             if (isLooping && audio.paused === false) {
+                //apply fade in before jumping to loop start
+                if (audioContext && gainNode) {
+                    applyFade(true);
+                }
                 audio.currentTime = loopStart;
             }
         }, totalCycleTime);
@@ -111,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadFile(file) {
         if (!file) return;
-        // remove previous audio file (a URL object)
+        //remove previous audio file (a URL object)
         if (currentAudio) {
             URL.revokeObjectURL(currentAudio);
             currentAudio = null;
@@ -133,8 +161,20 @@ document.addEventListener('DOMContentLoaded', () => {
             //add timeupdate listener for loop checking (continuous loop, no gap)
             audio.addEventListener('timeupdate', () => {
                 if (isLooping && loopStart !== null && loopEnd !== null && loopRepetitionDelay === 0) {
+                    // Check if we're near the end of the loop (within fade time)
+                    if (audio.currentTime >= loopEnd - FADE_TIME) {
+                        // Apply fade out before looping
+                        if (audioContext && gainNode && audio.currentTime >= loopEnd - FADE_TIME && audio.currentTime < loopEnd) {
+                            applyFade(false);
+                        }
+                    }
+                    
                     if (audio.currentTime >= loopEnd) {
                         audio.currentTime = loopStart;
+                        // Apply fade in after jumping back
+                        if (audioContext && gainNode) {
+                            applyFade(true);
+                        }
                     }
                 }
             });
