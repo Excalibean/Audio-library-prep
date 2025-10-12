@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioContext = null;
     let sourceNode = null;
     let gainNode = null;
+    let isLooping = false;
+    let loopStart = null;
+    let loopEnd = null;
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -35,20 +38,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     //temporal manipulation functions for audio
+    //default to 5 seconds if no argument
     function rewind(seconds = 5) {
         if (!audio) return;
         audio.currentTime = Math.max(0, audio.currentTime - seconds);
     }
-
 
     function fastForward(seconds = 5) {
         if (!audio) return;
         audio.currentTime = Math.min(audio.duration, audio.currentTime + seconds);
     }
 
-    function loopToggle(seconds = 5) {
+    function loopToggle() {
         if (!audio) return;
-        audio.loop = !audio.loop;
+        
+        isLooping = !isLooping;
+        
+        if (isLooping) {
+            //set loop to around current position (adjustable)           V sum of these to make loop length example
+            loopStart = Math.max(0, audio.currentTime - 0.5);            //0.5 seconds before plus
+            loopEnd = Math.min(audio.duration, audio.currentTime + 0.5); //0.5 seconds after for 1 second loop
+            if (loopButton) loopButton.textContent = '🔁 Loop: ON';
+        } else {
+            loopStart = null;
+            loopEnd = null;
+            if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
+        }
     }
 
     function loadFile(file) {
@@ -72,6 +87,14 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.addEventListener('pause', () => {
                 if (playButton) playButton.textContent = 'Play';
             });
+            //add timeupdate listener for loop checking 
+            audio.addEventListener('timeupdate', () => {
+                if (isLooping && loopStart !== null && loopEnd !== null) {
+                    if (audio.currentTime >= loopEnd) {
+                        audio.currentTime = loopStart;
+                    }
+                }
+            });
         } else {
             //pause before audio change
             audio.pause();
@@ -85,6 +108,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rewindButton) rewindButton.disabled = false;
         if (fastForwardButton) fastForwardButton.disabled = false;
         if (loopButton) loopButton.disabled = false;
+        
+        //reset loop state
+        isLooping = false;
+        loopStart = null;
+        loopEnd = null;
+        if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
     }
 
     //play/pause button behavior
@@ -130,7 +159,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const files = fileInput.files;
         if (files && files.length) loadFile(files[0]);
     });
-
 
     //speed slider behavior
     speedSlider?.addEventListener('input', () => {
