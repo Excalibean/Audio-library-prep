@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const fastForwardButton = document.getElementById('fast-forward-button');
     const loopButton = document.getElementById('loop-button');
     const currentFile = document.getElementById('current-file');
+    const loopLengthInput = document.getElementById('loop-length');
+    const loopDelayInput = document.getElementById('loop-delay');
+    const rewindStepInput = document.getElementById('rewind-step');
 
     let audio = null;
     let currentAudio = null; //this is a url object
@@ -17,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isLooping = false;
     let loopStart = null;
     let loopEnd = null;
+    let loopInterval = null;
+    let loopRepetitionDelay = 0;
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -55,15 +60,53 @@ document.addEventListener('DOMContentLoaded', () => {
         isLooping = !isLooping;
         
         if (isLooping) {
-            //set loop to around current position (adjustable)           V sum of these to make loop length example
-            loopStart = Math.max(0, audio.currentTime - 0.5);            //0.5 seconds before plus
-            loopEnd = Math.min(audio.duration, audio.currentTime + 0.5); //0.5 seconds after for 1 second loop
+            // Get loop length from input
+            const loopLength = parseFloat(loopLengthInput?.value || 1);
+            const halfLoop = loopLength / 2;
+            
+            //set loop to around current position (adjustable)
+            loopStart = Math.max(0, audio.currentTime - halfLoop);
+            loopEnd = Math.min(audio.duration, audio.currentTime + halfLoop);
+            
+            // Get delay from input
+            loopRepetitionDelay = parseFloat(loopDelayInput?.value || 0);
+            
             if (loopButton) loopButton.textContent = '🔁 Loop: ON';
+
+            //if delay is not 0, start delay based loop
+            if(loopRepetitionDelay > 0) {
+               startIntervalLoop();
+            }
         } else {
             loopStart = null;
             loopEnd = null;
             if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
+
+            //clear interval loop if any active
+            if(loopInterval) {
+                clearInterval(loopInterval);
+                loopInterval = null;
+            }
         }
+    }
+
+    //loop with delay
+    function startIntervalLoop() {
+        //clear previous delayed loop if any
+        if(loopInterval) clearInterval(loopInterval);
+
+        //get time for one loop
+        const loopDuration = (loopEnd - loopStart) / audio.playbackRate;
+        const totalCycleTime = (loopDuration + loopRepetitionDelay) * 1000; //in ms
+
+        //jump to loop start
+        audio.currentTime = loopStart;
+
+        loopInterval = setInterval(() => {
+            if (isLooping && audio.paused === false) {
+                audio.currentTime = loopStart;
+            }
+        }, totalCycleTime);
     }
 
     function loadFile(file) {
@@ -87,9 +130,9 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.addEventListener('pause', () => {
                 if (playButton) playButton.textContent = 'Play';
             });
-            //add timeupdate listener for loop checking 
+            //add timeupdate listener for loop checking (continuous loop, no gap)
             audio.addEventListener('timeupdate', () => {
-                if (isLooping && loopStart !== null && loopEnd !== null) {
+                if (isLooping && loopStart !== null && loopEnd !== null && loopRepetitionDelay === 0) {
                     if (audio.currentTime >= loopEnd) {
                         audio.currentTime = loopStart;
                     }
@@ -113,6 +156,8 @@ document.addEventListener('DOMContentLoaded', () => {
         isLooping = false;
         loopStart = null;
         loopEnd = null;
+        if (loopInterval) clearInterval(loopInterval);
+        loopInterval = null;
         if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
     }
 
@@ -136,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     //rewind button behavior
     rewindButton?.addEventListener('click', () => {
-        rewind(1); // Rewind 1 second
+        rewind(rewindStepInput ? parseFloat(rewindStepInput.value) : 1); //rewind by user rewind step
     });
 
     loopButton?.addEventListener('click', () => {
@@ -174,5 +219,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
         if (audioContext) audioContext.close();
+        if (loopInterval) clearInterval(loopInterval);
     });
 });

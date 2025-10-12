@@ -15,7 +15,7 @@
         <section id="upload">
             <h2>Upload Audio Files</h2>
             <form id="uploadForm">
-                <input type="file" id="audio-file" accept=".mp3,.wav" multiple>
+                <input type="file" id="audio-file" accept=".mp3,.wav,.flac" multiple>
                 <button type="submit">Upload</button>
             </form>
         </section>
@@ -29,9 +29,14 @@
             <div id="player-controls">
                 <span id="current-file">No file loaded</span>
                 <button id="play-button" disabled>Play</button>
-                <button id="rewind-button" disabled>Rewind 1s</button>
+                <button id="rewind-button" disabled>Rewind</button>
                 <button id="fast-forward-button" disabled>Fast Forward 1s</button>
                 <button id="loop-button" disabled>Toggle Loop</button>
+            </div>
+            <div id="loop-controls">
+                <label>Loop Duration (sec): <input type="number" id="loop-length" value="1" min="0.1" step="0.1"></label>
+                <label>Loop Frequency (sec): <input type="number" id="loop-delay" value="0" min="0" step="0.1"></label>
+                <label>Rewind Step (sec): <input type="number" id="rewind-step" value="1" min="0.1" step="0.1"></label>
             </div>
             </h2>
         </section>
