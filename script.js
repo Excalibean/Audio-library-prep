@@ -111,24 +111,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadFile(file) {
         if (!file) return;
-        // remove previous audio file (a URL object)
-        if (currentAudio) {
-            URL.revokeObjectURL(currentAudio);
-            currentAudio = null;
+
+        //initialize AudioContext if not already done
+        if (!audioContext) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContext();
         }
 
-        //play button fucntionality
-        if (!audio) {
-            audio = new Audio();
-            audio.preload = 'metadata';
-            audio.addEventListener('ended', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-            audio.addEventListener('play', () => {
-                if (playButton) playButton.textContent = 'Pause';
-            });
-            audio.addEventListener('pause', () => {
-                if (playButton) playButton.textContent = 'Play';
+        //decode audio data
+        const arrayBuffer = await file.arrayBuffer();
+        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        //update UI on screen and set values to defaults
+        if(currentFile) currentFile.textContent = file.name;
+        if(playButton) playButton.disabled = false;
+        if(rewindButton) rewindButton.disabled = false;
+        if(speedSlider) speedSlider.value = '1';
+        setSpeedLabel(1);
+
+        //reset playback position and speed
+        playbackPosition = 0;
+        playbackRate = 1;
+    }
+
+    function createSource(startFrom = 0) {
+        //create a new AudioBufferSourceNode
+        currentSource = audioContext.createBufferSource();
+        currentSource.buffer = audioBuffer;
+        currentSource.playbackRate.value = playbackRate;
+        currentSource.connect(audioContext.destination);
+
+        //start playback from the specified position
+        currentSource.start(0, startFrom);
+        
+    }
+
+    async function playAudio() {
+        if (!audioBuffer || !audioContext) return;
+
+        //resume the audio context if suspended
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        //stop the current source if it exists
+        if (currentSource) {
+            currentSource.stop();
+            currentSource = null;
+        }
+
+        //start playback
+        createSource(playbackPosition);
+        startTime = audioContext.currentTime;
+        playButton.textContent = 'Pause';
+    }
+
+    function pauseAudio() {
+        if (audioContext.state === 'running') {
+            //update playback position
+            playbackPosition += audioContext.currentTime - startTime;
+
+            audioContext.suspend().then(() => {
+                playButton.textContent = 'Play';
             });
             //add timeupdate listener for loop checking (continuous loop, no gap)
             audio.addEventListener('timeupdate', () => {
@@ -142,6 +186,18 @@ document.addEventListener('DOMContentLoaded', () => {
             //pause before audio change
             audio.pause();
         }
+    }
+
+    function rewindAudio() {
+        if (!audioBuffer || !audioContext) return;
+
+        //if audio is playing, update the playback position
+        if(currentSource && audioContext.state === 'running') {
+            playbackPosition += audioContext.currentTime - startTime;
+        }
+
+        //rewind by 1 second
+        playbackPosition = Math.max(0, playbackPosition - 1);
 
         currentAudio = URL.createObjectURL(file);
         audio.src = currentAudio;
@@ -175,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Play failed:', err);
             });
         } else {
-            audio.pause();
+            playAudio();
         }
     });
 
@@ -207,9 +263,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     //speed slider behavior
     speedSlider?.addEventListener('input', () => {
-        const v = parseFloat(speedSlider.value || '1');
-        setSpeedLabel(v);
-        if (audio) audio.playbackRate = v;
+        playbackRate = parseFloat(speedSlider.value || '1');
+        setSpeedLabel(playbackRate);
+
+        // Update playback rate for the current source
+        if (currentSource) {
+            currentSource.playbackRate.value = playbackRate;
+        }
     });
 
     //initialize label for speed slider
