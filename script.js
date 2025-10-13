@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopInterval = null;
     let loopRepetitionDelay = 0;
     const FADE_TIME = 0.02; // 20ms fade in/out to prevent clicks
+    const DEFAULT_TRACK = 'default.mp3'; // Set your default audio file path
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -201,6 +202,51 @@ document.addEventListener('DOMContentLoaded', () => {
         if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
     }
 
+    // Load default track from URL
+    function loadDefaultTrack() {
+        if (!audio) {
+            audio = new Audio();
+            audio.preload = 'metadata';
+            audio.addEventListener('ended', () => {
+                if (playButton) playButton.textContent = 'Play';
+            });
+            audio.addEventListener('play', () => {
+                if (playButton) playButton.textContent = 'Pause';
+            });
+            audio.addEventListener('pause', () => {
+                if (playButton) playButton.textContent = 'Play';
+            });
+            //add timeupdate listener for loop checking (continuous loop, no gap)
+            audio.addEventListener('timeupdate', () => {
+                if (isLooping && loopStart !== null && loopEnd !== null && loopRepetitionDelay === 0) {
+                    // Check if we're near the end of the loop (within fade time)
+                    if (audio.currentTime >= loopEnd - FADE_TIME) {
+                        // Apply fade out before looping
+                        if (audioContext && gainNode && audio.currentTime >= loopEnd - FADE_TIME && audio.currentTime < loopEnd) {
+                            applyFade(false);
+                        }
+                    }
+                    
+                    if (audio.currentTime >= loopEnd) {
+                        audio.currentTime = loopStart;
+                        // Apply fade in after jumping back
+                        if (audioContext && gainNode) {
+                            applyFade(true);
+                        }
+                    }
+                }
+            });
+        }
+
+        audio.src = DEFAULT_TRACK;
+        audio.playbackRate = parseFloat(speedSlider?.value || '1');
+        if (currentFile) currentFile.textContent = 'Default Track';
+        if (playButton) playButton.disabled = false;
+        if (rewindButton) rewindButton.disabled = false;
+        if (fastForwardButton) fastForwardButton.disabled = false;
+        if (loopButton) loopButton.disabled = false;
+    }
+
     //play/pause button behavior
     playButton?.addEventListener('click', () => {
         if (!audio) return;
@@ -254,6 +300,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     //initialize label for speed slider
     setSpeedLabel(parseFloat(speedSlider?.value || '1'));
+
+    // Load default track on page load
+    loadDefaultTrack();
 
     //cleanup object URL on unload
     window.addEventListener('beforeunload', () => {

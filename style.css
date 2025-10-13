@@ -27,6 +27,13 @@ header {
 
 }
 
+p{
+    margin: 0;
+    font-weight: normal;
+    font-size: 1.2e;
+    color: black
+}
+
 h2 {
     margin: 0;
     font-weight: normal;
