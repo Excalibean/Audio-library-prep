@@ -22,8 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopEnd = null;
     let loopInterval = null;
     let loopRepetitionDelay = 0;
-    const FADE_TIME = 0.02; // 20ms fade in/out to prevent clicks
+    const FADE_TIME = 0.03; // 30ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default.mp3'; // Set your default audio file path
+
+    //TO DO: windowing, overlap when rewinding, and place rewinding on negative speed slider(or just have a rewind mode continuous)
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;

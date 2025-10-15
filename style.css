@@ -24,7 +24,20 @@ header {
     flex-direction: column;
     gap: 0.5em;
     align-items: baseline;
+}
 
+/* Container for the speed control to prevent shifting */
+#controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+#speed-label {
+    display: inline-block;
+    min-width: 5ch; /* Reserve space for "-2.00x" */
+    text-align: left; /* Keep left aligned within reserved space */
+    font-variant-numeric: tabular-nums; /* Use monospace numbers */
 }
 
 p{
