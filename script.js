@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopEnd = null;
     let loopInterval = null;
     let loopRepetitionDelay = 0;
-    const FADE_TIME = 0.03; // 30ms fade in/out to prevent clicks
+    let rewindInterval = null; // For continuous rewinding
+    const FADE_TIME = 0.04; // 30ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default.mp3'; // Set your default audio file path
 
     //TO DO: windowing, overlap when rewinding, and place rewinding on negative speed slider(or just have a rewind mode continuous)
@@ -74,6 +75,45 @@ document.addEventListener('DOMContentLoaded', () => {
     function fastForward(seconds = 5) {
         if (!audio) return;
         audio.currentTime = Math.min(audio.duration, audio.currentTime + seconds);
+    }
+
+    // Start continuous rewinding based on negative speed
+    function startContinuousRewind(speed) {
+        // Stop any existing rewind interval
+        stopContinuousRewind();
+        
+        if (!audio || speed >= 0) return;
+        
+        const rewindSpeed = Math.abs(speed); // Convert negative to positive
+        const rewindStep = parseFloat(rewindStepInput?.value || 1);
+        const intervalTime = 500 / rewindSpeed; // At -1x: 500ms, at -2x: 250ms, etc.
+
+        //MAINTAIN  playback rate at x1 for listening
+        audio.playbackRate = 1;
+        
+        rewindInterval = setInterval(() => {
+            if (!audio || audio.currentTime <= 0) {
+                stopContinuousRewind();
+                // Reset slider to 1x when reaching the beginning
+                if (speedSlider) {
+                    speedSlider.value = '1';
+                    setSpeedLabel(1);
+                    if (audio) audio.playbackRate = 1;
+                }
+                return;
+            }
+            
+            // Simulate clicking the rewind button
+            rewind(rewindStep);
+        }, intervalTime);
+    }
+
+    // Stop continuous rewinding
+    function stopContinuousRewind() {
+        if (rewindInterval) {
+            clearInterval(rewindInterval);
+            rewindInterval = null;
+        }
     }
 
     function loopToggle() {
@@ -297,7 +337,17 @@ document.addEventListener('DOMContentLoaded', () => {
     speedSlider?.addEventListener('input', () => {
         const v = parseFloat(speedSlider.value || '1');
         setSpeedLabel(v);
-        if (audio) audio.playbackRate = v;
+        
+        if (audio) {
+            if (v < 0) {
+                // Negative speed: start continuous rewind
+                startContinuousRewind(v);
+            } else {
+                // Positive speed: stop rewind and set playback rate
+                stopContinuousRewind();
+                audio.playbackRate = v;
+            }
+        }
     });
 
     //initialize label for speed slider
@@ -311,5 +361,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
         if (audioContext) audioContext.close();
         if (loopInterval) clearInterval(loopInterval);
+        if (rewindInterval) clearInterval(rewindInterval);
     });
 });
