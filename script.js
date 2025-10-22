@@ -23,10 +23,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopInterval = null;
     let loopRepetitionDelay = 0;
     let rewindInterval = null; // For continuous rewinding
-    const FADE_TIME = 0.04; // 30ms fade in/out to prevent clicks
-    const DEFAULT_TRACK = 'default.mp3'; // Set your default audio file path
+    const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
+    const DEFAULT_TRACK = 'default.mp3'; //default audio file path
 
-    //TO DO: windowing, overlap when rewinding, and place rewinding on negative speed slider(or just have a rewind mode continuous)
+    //TO DO: windowing, overlap when rewinding
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -77,24 +77,24 @@ document.addEventListener('DOMContentLoaded', () => {
         audio.currentTime = Math.min(audio.duration, audio.currentTime + seconds);
     }
 
-    // Start continuous rewinding based on negative speed
+    //start continuous rewinding based on negative speed
     function startContinuousRewind(speed) {
-        // Stop any existing rewind interval
+        // stop existing rewind interval
         stopContinuousRewind();
         
         if (!audio || speed >= 0) return;
         
-        const rewindSpeed = Math.abs(speed); // Convert negative to positive
+        const rewindSpeed = Math.abs(speed); //convert negative to positive to match slider
         const rewindStep = parseFloat(rewindStepInput?.value || 1);
-        const intervalTime = 500 / rewindSpeed; // At -1x: 500ms, at -2x: 250ms, etc.
+        const intervalTime = 500 / rewindSpeed; //at -1x: 0.5 sec, at -2x: 0.25 sec (ie. how often we skip backwards)
 
-        //MAINTAIN  playback rate at x1 for listening
+        //MAINTAIN audio playback rate at x1 for listening
         audio.playbackRate = 1;
         
         rewindInterval = setInterval(() => {
             if (!audio || audio.currentTime <= 0) {
                 stopContinuousRewind();
-                // Reset slider to 1x when reaching the beginning
+                //reset slider to 1x when reaching the beginning (might be able to remove this, redundant?)
                 if (speedSlider) {
                     speedSlider.value = '1';
                     setSpeedLabel(1);
@@ -103,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            // Simulate clicking the rewind button
+            //repeating rewind with rewind step
             rewind(rewindStep);
         }, intervalTime);
     }
