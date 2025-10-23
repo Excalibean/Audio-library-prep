@@ -24,9 +24,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopRepetitionDelay = 0;
     let rewindInterval = null; // For continuous rewinding
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
-    const DEFAULT_TRACK = 'default.mp3'; //default audio file path
+    const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
 
-    //TO DO: windowing, overlap when rewinding
+    //TO DO: windowing, overlap when rewinding, chunk size parameters
+    // step size parameter, period(how often to step) parameter, length(parameter), and playback speed for reverse parameter
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
