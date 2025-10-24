@@ -11,6 +11,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const loopLengthInput = document.getElementById('loop-length');
     const loopDelayInput = document.getElementById('loop-delay');
     const rewindStepInput = document.getElementById('rewind-step');
+    const rewindFreq = document.getElementById('rewind-freq');       //how often to step back
+    const rewindOverlap = document.getElementById('rewind-overlap'); //audio overlap between steps
+    const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed'); //playback speed while rewinding
 
     let audio = null;
     let currentAudio = null; //this is a url object
@@ -23,11 +26,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let loopInterval = null;
     let loopRepetitionDelay = 0;
     let rewindInterval = null; // For continuous rewinding
+    let isRewinding = false; // Track if currently in rewind mode
+    let audioBuffer = null; // Store decoded audio for Web Audio API playback
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
 
-    //TO DO: windowing, overlap when rewinding, chunk size parameters
-    // step size parameter, period(how often to step) parameter, length(parameter), and playback speed for reverse parameter
+    //TO DO: rewind playback speed control (currently not tempo, must be tempo)
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -66,6 +70,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Play an overlapping audio chunk using Web Audio API
+    function playOverlappingChunk(startTime, duration, overlap) {
+        if (!audioContext || !audioBuffer) return;
+
+        const playbackSpeed = parseFloat(rewindPlaybackSpeed?.value || 1);
+        
+        // Create a new buffer source for this chunk
+        const chunkSource = audioContext.createBufferSource();
+        chunkSource.buffer = audioBuffer;
+        
+        // Create a gain node for this chunk to control crossfading
+        const chunkGain = audioContext.createGain();
+        chunkSource.connect(chunkGain);
+        chunkGain.connect(audioContext.destination);
+        
+        // Set playback rate
+        chunkSource.playbackRate.value = playbackSpeed;
+        
+        const now = audioContext.currentTime;
+        const fadeDuration = Math.min(overlap / 2, FADE_TIME);
+        
+        // Fade in at the start
+        chunkGain.gain.setValueAtTime(0, now);
+        chunkGain.gain.linearRampToValueAtTime(1, now + fadeDuration);
+        
+        // Fade out at the end
+        const chunkDuration = duration / playbackSpeed;
+        chunkGain.gain.setValueAtTime(1, now + chunkDuration - fadeDuration);
+        chunkGain.gain.linearRampToValueAtTime(0, now + chunkDuration);
+        
+        // Play the chunk
+        chunkSource.start(now, startTime, duration);
+        chunkSource.stop(now + chunkDuration);
+    }
+
     //temporal manipulation functions for audio
     //default to 5 seconds if no argument
     function rewind(seconds = 5) {
@@ -78,24 +117,31 @@ document.addEventListener('DOMContentLoaded', () => {
         audio.currentTime = Math.min(audio.duration, audio.currentTime + seconds);
     }
 
-    //start continuous rewinding based on negative speed
+    //start continuous rewinding based on negative speed with overlapping chunks
     function startContinuousRewind(speed) {
         // stop existing rewind interval
         stopContinuousRewind();
         
         if (!audio || speed >= 0) return;
         
+        isRewinding = true;
+        
+        // Pause the main audio element during rewinding
+        if (!audio.paused) {
+            audio.pause();
+        }
+        
         const rewindSpeed = Math.abs(speed); //convert negative to positive to match slider
-        const rewindStep = parseFloat(rewindStepInput?.value || 1);
-        const intervalTime = 500 / rewindSpeed; //at -1x: 0.5 sec, at -2x: 0.25 sec (ie. how often we skip backwards)
-
-        //MAINTAIN audio playback rate at x1 for listening
-        audio.playbackRate = 1;
+        const stepSize = parseFloat(rewindStepInput?.value || 1); // Chunk size and step distance
+        const overlap = parseFloat(rewindOverlap?.value || 0.2); // Overlap in seconds
+        const frequency = parseFloat(rewindFreq?.value || 0.5); // How often to step back
+        
+        const intervalTime = (frequency / rewindSpeed) * 1000; // Adjust frequency by speed
         
         rewindInterval = setInterval(() => {
             if (!audio || audio.currentTime <= 0) {
                 stopContinuousRewind();
-                //reset slider to 1x when reaching the beginning (might be able to remove this, redundant?)
+                //reset slider to 1x when reaching the beginning
                 if (speedSlider) {
                     speedSlider.value = '1';
                     setSpeedLabel(1);
@@ -104,8 +150,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            //repeating rewind with rewind step
-            rewind(rewindStep);
+            // Calculate the start position for the chunk
+            const chunkStart = Math.max(0, audio.currentTime - stepSize);
+            
+            // Play overlapping chunk using Web Audio API
+            if (audioBuffer) {
+                playOverlappingChunk(chunkStart, stepSize, overlap);
+            }
+            
+            // Move the playhead back by stepSize minus overlap
+            audio.currentTime = Math.max(0, audio.currentTime - (stepSize - overlap));
+            
         }, intervalTime);
     }
 
@@ -115,6 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(rewindInterval);
             rewindInterval = null;
         }
+        isRewinding = false;
     }
 
     function loopToggle() {
@@ -181,6 +237,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }, totalCycleTime);
     }
 
+    // Decode audio file into buffer for Web Audio API
+    async function decodeAudioFile(arrayBuffer) {
+        if (!audioContext) {
+            initWebAudio();
+        }
+        try {
+            audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        } catch (err) {
+            console.error('Error decoding audio:', err);
+        }
+    }
+
     function loadFile(file) {
         if (!file) return;
         //remove previous audio file (a URL object)
@@ -243,6 +311,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (loopInterval) clearInterval(loopInterval);
         loopInterval = null;
         if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
+
+        // Decode audio for Web Audio API (for overlapping chunks)
+        file.arrayBuffer().then(decodeAudioFile);
     }
 
     // Load default track from URL
@@ -288,6 +359,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rewindButton) rewindButton.disabled = false;
         if (fastForwardButton) fastForwardButton.disabled = false;
         if (loopButton) loopButton.disabled = false;
+
+        // Fetch and decode default track for Web Audio API
+        fetch(DEFAULT_TRACK)
+            .then(response => response.arrayBuffer())
+            .then(decodeAudioFile)
+            .catch(err => console.error('Error loading default track:', err));
     }
 
     //play/pause button behavior

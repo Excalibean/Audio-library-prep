@@ -33,6 +33,13 @@ header {
     gap: 0.5em;
 }
 
+#fine-tune-controls {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5em;
+    margin-top: 1em;
+}
+
 #speed-label {
     display: inline-block;
     min-width: 5ch; /* Reserve space for "-2.00x" */
