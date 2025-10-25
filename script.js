@@ -37,18 +37,29 @@ document.addEventListener('DOMContentLoaded', () => {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
     }
 
-    //web audio api initialization
+    //web audio api initialization - only when needed for rewinding
     function initWebAudio() {
         if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
+    }
+
+    // Connect audio element to Web Audio API (for looping with fades)
+    function connectAudioElement() {
+        if (!audioContext || !audio) return;
+        
         if (!gainNode) {
             gainNode = audioContext.createGain();
             gainNode.connect(audioContext.destination);
         }
-        if (!sourceNode && audio) {
-            sourceNode = audioContext.createMediaElementSource(audio);
-            sourceNode.connect(gainNode);
+        
+        if (!sourceNode) {
+            try {
+                sourceNode = audioContext.createMediaElementSource(audio);
+                sourceNode.connect(gainNode);
+            } catch (err) {
+                console.error('Error connecting audio element:', err);
+            }
         }
     }
 
@@ -126,6 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
         
         isRewinding = true;
         
+        // Initialize Web Audio API for chunk playback
+        if (!audioContext) {
+            initWebAudio();
+        }
+        
         // Pause the main audio element during rewinding
         if (!audio.paused) {
             audio.pause();
@@ -136,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const overlap = parseFloat(rewindOverlap?.value || 0.2); // Overlap in seconds
         const frequency = parseFloat(rewindFreq?.value || 0.5); // How often to step back
         
-        const intervalTime = (frequency / rewindSpeed) * 1000; // Adjust frequency by speed
+        const intervalTime = (frequency / rewindSpeed) * 1000; // Adjust frequency to speed
         
         rewindInterval = setInterval(() => {
             if (!audio || audio.currentTime <= 0) {
@@ -192,8 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (loopButton) loopButton.textContent = '🔁 Loop: ON';
 
+            // Initialize and connect Web Audio for fade effects
+            if (!audioContext) {
+                initWebAudio();
+            }
+            connectAudioElement();
+
             //apply fade in when starting loop
-            if (audioContext && gainNode) {
+            if (gainNode) {
                 applyFade(true);
             }
 
@@ -370,11 +392,6 @@ document.addEventListener('DOMContentLoaded', () => {
     //play/pause button behavior
     playButton?.addEventListener('click', () => {
         if (!audio) return;
-        
-        //initialize Web Audio API on first play (user interaction required)
-        if (!audioContext) {
-            initWebAudio();
-        }
         
         if (audio.paused) {
             audio.play().catch(err => {
