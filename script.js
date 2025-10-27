@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rewindStepInput = document.getElementById('rewind-step');
     const rewindFreq = document.getElementById('rewind-freq');       //how often to step back
     const rewindOverlap = document.getElementById('rewind-overlap'); //audio overlap between steps
-    const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed'); //playback speed while rewinding
+    const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed'); //playback tempo while rewinding
 
     let audio = null;
     let currentAudio = null; //this is a url object
@@ -30,8 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioBuffer = null; // Store decoded audio for Web Audio API playback
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
-
-    //TO DO: rewind playback speed control (currently not tempo, must be tempo)
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -81,38 +79,134 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Play an overlapping audio chunk using Web Audio API
+    // Pitch-preserving tempo adjustment using overlap-add technique
+    function createTempoStretchedBuffer(sourceBuffer, tempoFactor) {
+        if (!audioContext || !sourceBuffer) return null;
+        
+        // If tempo is 1.0, return original buffer
+        if (Math.abs(tempoFactor - 1.0) < 0.01) return sourceBuffer;
+        
+        const sampleRate = sourceBuffer.sampleRate;
+        const numberOfChannels = sourceBuffer.numberOfChannels;
+        const originalLength = sourceBuffer.length;
+        // FIX: Multiply by tempoFactor instead of dividing
+        // tempoFactor > 1 = faster/shorter, tempoFactor < 1 = slower/longer
+        const newLength = Math.floor(originalLength / tempoFactor);
+        
+        // Create new buffer for stretched audio
+        const stretchedBuffer = audioContext.createBuffer(
+            numberOfChannels,
+            newLength,
+            sampleRate
+        );
+        
+        const windowSize = Math.floor(sampleRate * 0.04); // 40ms window
+        const hopSize = Math.floor(windowSize / 2);
+        // FIX: Divide by tempoFactor instead of multiplying
+        const outputHopSize = Math.floor(hopSize / tempoFactor);
+        
+        // Process each channel
+        for (let channel = 0; channel < numberOfChannels; channel++) {
+            const inputData = sourceBuffer.getChannelData(channel);
+            const outputData = stretchedBuffer.getChannelData(channel);
+            
+            let inputPos = 0;
+            let outputPos = 0;
+            
+            // Overlap-add processing
+            while (inputPos + windowSize < originalLength && outputPos < newLength) {
+                // Copy and apply Hann window
+                for (let i = 0; i < windowSize && outputPos + i < newLength; i++) {
+                    const hannWindow = 0.5 * (1 - Math.cos(2 * Math.PI * i / windowSize));
+                    const sample = inputData[inputPos + i] * hannWindow;
+                    outputData[outputPos + i] = (outputData[outputPos + i] || 0) + sample;
+                }
+                
+                inputPos += hopSize;
+                outputPos += outputHopSize;
+            }
+            
+            // Normalize output to prevent clipping
+            let maxAmplitude = 0;
+            for (let i = 0; i < newLength; i++) {
+                maxAmplitude = Math.max(maxAmplitude, Math.abs(outputData[i]));
+            }
+            if (maxAmplitude > 1.0) {
+                for (let i = 0; i < newLength; i++) {
+                    outputData[i] /= maxAmplitude;
+                }
+            }
+        }
+        
+        return stretchedBuffer;
+    }
+
+    // Play an overlapping audio chunk using Web Audio API with tempo stretching
     function playOverlappingChunk(startTime, duration, overlap) {
         if (!audioContext || !audioBuffer) return;
 
-        const playbackSpeed = parseFloat(rewindPlaybackSpeed?.value || 1);
+        const tempoFactor = parseFloat(rewindPlaybackSpeed?.value || 1);
         
-        // Create a new buffer source for this chunk
+        // Extract chunk from main buffer
+        const startSample = Math.floor(startTime * audioBuffer.sampleRate);
+        const durationSamples = Math.floor(duration * audioBuffer.sampleRate);
+        const numberOfChannels = audioBuffer.numberOfChannels;
+        
+        // Ensure we don't exceed buffer bounds
+        const actualDurationSamples = Math.min(durationSamples, audioBuffer.length - startSample);
+        if (actualDurationSamples <= 0) return;
+        
+        // Create buffer for the chunk
+        const chunkBuffer = audioContext.createBuffer(
+            numberOfChannels,
+            actualDurationSamples,
+            audioBuffer.sampleRate
+        );
+        
+        // Copy chunk data
+        for (let channel = 0; channel < numberOfChannels; channel++) {
+            const sourceData = audioBuffer.getChannelData(channel);
+            const chunkData = chunkBuffer.getChannelData(channel);
+            
+            for (let i = 0; i < actualDurationSamples; i++) {
+                const sourceIndex = startSample + i;
+                if (sourceIndex < sourceData.length) {
+                    chunkData[i] = sourceData[sourceIndex];
+                }
+            }
+        }
+        
+        // Apply tempo stretching while preserving pitch
+        const stretchedBuffer = createTempoStretchedBuffer(chunkBuffer, tempoFactor);
+        
+        if (!stretchedBuffer) return;
+        
+        // Create buffer source for playback
         const chunkSource = audioContext.createBufferSource();
-        chunkSource.buffer = audioBuffer;
+        chunkSource.buffer = stretchedBuffer;
         
-        // Create a gain node for this chunk to control crossfading
+        // Create gain node for crossfading
         const chunkGain = audioContext.createGain();
         chunkSource.connect(chunkGain);
         chunkGain.connect(audioContext.destination);
         
-        // Set playback rate
-        chunkSource.playbackRate.value = playbackSpeed;
-        
         const now = audioContext.currentTime;
         const fadeDuration = Math.min(overlap / 2, FADE_TIME);
+        const chunkDuration = stretchedBuffer.duration;
         
-        // Fade in at the start
+        // Fade in at start
         chunkGain.gain.setValueAtTime(0, now);
         chunkGain.gain.linearRampToValueAtTime(1, now + fadeDuration);
         
-        // Fade out at the end
-        const chunkDuration = duration / playbackSpeed;
-        chunkGain.gain.setValueAtTime(1, now + chunkDuration - fadeDuration);
-        chunkGain.gain.linearRampToValueAtTime(0, now + chunkDuration);
+        // Fade out at end
+        const fadeOutStart = now + chunkDuration - fadeDuration;
+        if (fadeOutStart > now) {
+            chunkGain.gain.setValueAtTime(1, fadeOutStart);
+            chunkGain.gain.linearRampToValueAtTime(0, now + chunkDuration);
+        }
         
-        // Play the chunk
-        chunkSource.start(now, startTime, duration);
+        // Play the tempo-stretched chunk
+        chunkSource.start(now);
         chunkSource.stop(now + chunkDuration);
     }
 
@@ -174,8 +268,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 playOverlappingChunk(chunkStart, stepSize, overlap);
             }
             
-            // Move the playhead back by stepSize minus overlap
-            audio.currentTime = Math.max(0, audio.currentTime - (stepSize - overlap));
+            // Move the playhead back to create rewind effect
+            audio.currentTime = Math.max(0, audio.currentTime - stepSize);
             
         }, intervalTime);
     }
