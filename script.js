@@ -8,9 +8,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const fastForwardButton = document.getElementById('fast-forward-button');
     const currentFile = document.getElementById('current-file');
     const rewindStepInput = document.getElementById('rewind-step');
-    const rewindFreq = document.getElementById('rewind-freq');       //how often to step back
-    const rewindOverlap = document.getElementById('rewind-overlap'); //audio overlap between steps
-    const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed'); //playback tempo while rewinding
+    const rewindStepLabel = document.getElementById('rewind-step-label');
+    const rewindFreq = document.getElementById('rewind-freq');
+    const rewindFreqLabel = document.getElementById('rewind-freq-label');
+    const rewindOverlap = document.getElementById('rewind-overlap');
+    const rewindOverlapLabel = document.getElementById('rewind-overlap-label');
+    const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed');
+    const rewindPlaybackSpeedLabel = document.getElementById('rewind-playback-speed-label');
+    const progressBar = document.getElementById('progress-bar');
+    const currentTimeDisplay = document.getElementById('current-time');
+    const durationTimeDisplay = document.getElementById('duration-time');
 
     let audio = null;
     let currentAudio = null; //this is a url object
@@ -20,16 +27,42 @@ document.addEventListener('DOMContentLoaded', () => {
     let rewindInterval = null; // For continuous rewinding
     let isRewinding = false; // Track if currently in rewind mode
     let audioBuffer = null; // Store decoded audio for Web Audio API playback
+    let isSeeking = false; // Track if user is dragging the progress bar
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
 
-    //TO DO: add playback progress bar, smooth out the backwards playback between slider updates, show parameter changes live when changing slider,
-    //       add second slider for equilibrium point using formula below (lock the clockspeed to reduce varation)
+    //TO DO: add second slider for equilibrium point using formula below (lock the clockspeed to reduce varation)
     // note: low pass filter eq: dX/dt = -gamma(X - E(t)) where E(t) is time (equilibrium point) and gamma is how quick it converges
     //                            or simply put in code: X = X - alpha * (X - E)
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
+    }
+
+    // Format time in MM:SS format
+    function formatTime(seconds) {
+        if (isNaN(seconds)) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // Update progress bar and time display
+    function updateProgress() {
+        if (!audio || isSeeking) return;
+        
+        const progress = (audio.currentTime / audio.duration) * 100;
+        if (progressBar) progressBar.value = progress;
+        if (currentTimeDisplay) currentTimeDisplay.textContent = formatTime(audio.currentTime);
+        if (durationTimeDisplay) durationTimeDisplay.textContent = formatTime(audio.duration);
+    }
+
+    // Update parameter labels
+    function updateParameterLabels() {
+        if (rewindStepLabel) rewindStepLabel.textContent = `${parseFloat(rewindStepInput.value).toFixed(2)}s`;
+        if (rewindFreqLabel) rewindFreqLabel.textContent = `${parseFloat(rewindFreq.value).toFixed(2)}s`;
+        if (rewindOverlapLabel) rewindOverlapLabel.textContent = `${parseFloat(rewindOverlap.value).toFixed(2)}s`;
+        if (rewindPlaybackSpeedLabel) rewindPlaybackSpeedLabel.textContent = `${parseFloat(rewindPlaybackSpeed.value).toFixed(2)}x`;
     }
 
     //web audio api initialization - only when needed for rewinding
@@ -312,6 +345,13 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.addEventListener('pause', () => {
                 if (playButton) playButton.textContent = 'Play';
             });
+            // Update progress bar during playback
+            audio.addEventListener('timeupdate', updateProgress);
+            // Update duration display when metadata is loaded
+            audio.addEventListener('loadedmetadata', () => {
+                updateProgress();
+                if (progressBar) progressBar.max = 100;
+            });
 
         } else {
             //pause before audio change
@@ -343,6 +383,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             audio.addEventListener('pause', () => {
                 if (playButton) playButton.textContent = 'Play';
+            });
+            // Update progress bar during playback
+            audio.addEventListener('timeupdate', updateProgress);
+            // Update duration display when metadata is loaded
+            audio.addEventListener('loadedmetadata', () => {
+                updateProgress();
+                if (progressBar) progressBar.max = 100;
             });
 
         }
@@ -413,8 +460,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    //initialize label for speed slider
+    // Progress bar seeking
+    progressBar?.addEventListener('mousedown', () => {
+        isSeeking = true;
+    });
+
+    progressBar?.addEventListener('mouseup', () => {
+        isSeeking = false;
+    });
+
+    progressBar?.addEventListener('input', () => {
+        if (!audio) return;
+        const seekTime = (progressBar.value / 100) * audio.duration;
+        audio.currentTime = seekTime;
+        updateProgress();
+    });
+
+    // Add event listeners for parameter sliders
+    rewindStepInput?.addEventListener('input', updateParameterLabels);
+    rewindFreq?.addEventListener('input', updateParameterLabels);
+    rewindOverlap?.addEventListener('input', updateParameterLabels);
+    rewindPlaybackSpeed?.addEventListener('input', updateParameterLabels);
+
+    //initialize labels
     setSpeedLabel(parseFloat(speedSlider?.value || '1'));
+    updateParameterLabels();
 
     // Load default track on page load
     loadDefaultTrack();
