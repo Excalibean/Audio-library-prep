@@ -6,10 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const playButton = document.getElementById('play-button');
     const rewindButton = document.getElementById('rewind-button');
     const fastForwardButton = document.getElementById('fast-forward-button');
-    const loopButton = document.getElementById('loop-button');
     const currentFile = document.getElementById('current-file');
-    const loopLengthInput = document.getElementById('loop-length');
-    const loopDelayInput = document.getElementById('loop-delay');
     const rewindStepInput = document.getElementById('rewind-step');
     const rewindFreq = document.getElementById('rewind-freq');       //how often to step back
     const rewindOverlap = document.getElementById('rewind-overlap'); //audio overlap between steps
@@ -20,16 +17,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioContext = null;
     let sourceNode = null;
     let gainNode = null;
-    let isLooping = false;
-    let loopStart = null;
-    let loopEnd = null;
-    let loopInterval = null;
-    let loopRepetitionDelay = 0;
     let rewindInterval = null; // For continuous rewinding
     let isRewinding = false; // Track if currently in rewind mode
     let audioBuffer = null; // Store decoded audio for Web Audio API playback
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
+
+    //TO DO: add playback progress bar, smooth out the backwards playback between slider updates, show parameter changes live when changing slider,
+    //       add second slider for equilibrium point using formula below (lock the clockspeed to reduce varation)
+    // note: low pass filter eq: dX/dt = -gamma(X - E(t)) where E(t) is time (equilibrium point) and gamma is how quick it converges
+    //                            or simply put in code: X = X - alpha * (X - E)
 
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -42,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Connect audio element to Web Audio API (for looping with fades)
+    // Connect audio element to Web Audio API (for special effects if needed in future)
     function connectAudioElement() {
         if (!audioContext || !audio) return;
         
@@ -61,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    //apply fade in/out to prevent clicks
+    //apply fade in/out to prevent clicks (for future use)
     function applyFade(fadeIn = true) {
         if (!gainNode || !audioContext) return;
         
@@ -89,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sampleRate = sourceBuffer.sampleRate;
         const numberOfChannels = sourceBuffer.numberOfChannels;
         const originalLength = sourceBuffer.length;
-        // FIX: Multiply by tempoFactor instead of dividing
+
         // tempoFactor > 1 = faster/shorter, tempoFactor < 1 = slower/longer
         const newLength = Math.floor(originalLength / tempoFactor);
         
@@ -102,7 +99,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const windowSize = Math.floor(sampleRate * 0.04); // 40ms window
         const hopSize = Math.floor(windowSize / 2);
-        // FIX: Divide by tempoFactor instead of multiplying
         const outputHopSize = Math.floor(hopSize / tempoFactor);
         
         // Process each channel
@@ -283,76 +279,6 @@ document.addEventListener('DOMContentLoaded', () => {
         isRewinding = false;
     }
 
-    function loopToggle() {
-        if (!audio) return;
-        
-        isLooping = !isLooping;
-        
-        if (isLooping) {
-            //get loop length from input
-            const loopLength = parseFloat(loopLengthInput?.value || 1);
-            const halfLoop = loopLength / 2;
-            
-            //set loop to around current position (adjustable)
-            loopStart = Math.max(0, audio.currentTime - halfLoop);
-            loopEnd = Math.min(audio.duration, audio.currentTime + halfLoop);
-            
-            //get delay from input
-            loopRepetitionDelay = parseFloat(loopDelayInput?.value || 0);
-            
-            if (loopButton) loopButton.textContent = '🔁 Loop: ON';
-
-            // Initialize and connect Web Audio for fade effects
-            if (!audioContext) {
-                initWebAudio();
-            }
-            connectAudioElement();
-
-            //apply fade in when starting loop
-            if (gainNode) {
-                applyFade(true);
-            }
-
-            //if delay is not 0, start delay based loop
-            if(loopRepetitionDelay > 0) {
-               startIntervalLoop();
-            }
-        } else {
-            loopStart = null;
-            loopEnd = null;
-            if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
-
-            //clear interval loop if any active
-            if(loopInterval) {
-                clearInterval(loopInterval);
-                loopInterval = null;
-            }
-        }
-    }
-
-    //loop with delay
-    function startIntervalLoop() {
-        //clear previous delayed loop if any
-        if(loopInterval) clearInterval(loopInterval);
-
-        //get time for one loop
-        const loopDuration = (loopEnd - loopStart) / audio.playbackRate;
-        const totalCycleTime = (loopDuration + loopRepetitionDelay) * 1000; //in ms
-
-        //jump to loop start
-        audio.currentTime = loopStart;
-
-        loopInterval = setInterval(() => {
-            if (isLooping && audio.paused === false) {
-                //apply fade in before jumping to loop start
-                if (audioContext && gainNode) {
-                    applyFade(true);
-                }
-                audio.currentTime = loopStart;
-            }
-        }, totalCycleTime);
-    }
-
     // Decode audio file into buffer for Web Audio API
     async function decodeAudioFile(arrayBuffer) {
         if (!audioContext) {
@@ -386,26 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.addEventListener('pause', () => {
                 if (playButton) playButton.textContent = 'Play';
             });
-            //add timeupdate listener for loop checking (continuous loop, no gap)
-            audio.addEventListener('timeupdate', () => {
-                if (isLooping && loopStart !== null && loopEnd !== null && loopRepetitionDelay === 0) {
-                    // Check if we're near the end of the loop (within fade time)
-                    if (audio.currentTime >= loopEnd - FADE_TIME) {
-                        // Apply fade out before looping
-                        if (audioContext && gainNode && audio.currentTime >= loopEnd - FADE_TIME && audio.currentTime < loopEnd) {
-                            applyFade(false);
-                        }
-                    }
-                    
-                    if (audio.currentTime >= loopEnd) {
-                        audio.currentTime = loopStart;
-                        // Apply fade in after jumping back
-                        if (audioContext && gainNode) {
-                            applyFade(true);
-                        }
-                    }
-                }
-            });
+
         } else {
             //pause before audio change
             audio.pause();
@@ -418,15 +325,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (playButton) playButton.disabled = false;
         if (rewindButton) rewindButton.disabled = false;
         if (fastForwardButton) fastForwardButton.disabled = false;
-        if (loopButton) loopButton.disabled = false;
-        
-        //reset loop state
-        isLooping = false;
-        loopStart = null;
-        loopEnd = null;
-        if (loopInterval) clearInterval(loopInterval);
-        loopInterval = null;
-        if (loopButton) loopButton.textContent = '🔁 Loop: OFF';
 
         // Decode audio for Web Audio API (for overlapping chunks)
         file.arrayBuffer().then(decodeAudioFile);
@@ -446,26 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.addEventListener('pause', () => {
                 if (playButton) playButton.textContent = 'Play';
             });
-            //add timeupdate listener for loop checking (continuous loop, no gap)
-            audio.addEventListener('timeupdate', () => {
-                if (isLooping && loopStart !== null && loopEnd !== null && loopRepetitionDelay === 0) {
-                    // Check if we're near the end of the loop (within fade time)
-                    if (audio.currentTime >= loopEnd - FADE_TIME) {
-                        // Apply fade out before looping
-                        if (audioContext && gainNode && audio.currentTime >= loopEnd - FADE_TIME && audio.currentTime < loopEnd) {
-                            applyFade(false);
-                        }
-                    }
-                    
-                    if (audio.currentTime >= loopEnd) {
-                        audio.currentTime = loopStart;
-                        // Apply fade in after jumping back
-                        if (audioContext && gainNode) {
-                            applyFade(true);
-                        }
-                    }
-                }
-            });
+
         }
 
         audio.src = DEFAULT_TRACK;
@@ -474,7 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (playButton) playButton.disabled = false;
         if (rewindButton) rewindButton.disabled = false;
         if (fastForwardButton) fastForwardButton.disabled = false;
-        if (loopButton) loopButton.disabled = false;
 
         // Fetch and decode default track for Web Audio API
         fetch(DEFAULT_TRACK)
@@ -499,10 +377,6 @@ document.addEventListener('DOMContentLoaded', () => {
     //rewind button behavior
     rewindButton?.addEventListener('click', () => {
         rewind(rewindStepInput ? parseFloat(rewindStepInput.value) : 1); //rewind by user rewind step
-    });
-
-    loopButton?.addEventListener('click', () => {
-        loopToggle();
     });
 
     fastForwardButton?.addEventListener('click', () => {
@@ -549,7 +423,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
         if (audioContext) audioContext.close();
-        if (loopInterval) clearInterval(loopInterval);
         if (rewindInterval) clearInterval(rewindInterval);
     });
 });
