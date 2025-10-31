@@ -239,13 +239,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (playButton) playButton.textContent = 'Pause';
         
         const rewindSpeed = Math.abs(speed); //convert negative to positive to match slider
-        const stepSize = parseFloat(rewindStepInput?.value || 1); // Chunk size and step distance
-        const overlap = parseFloat(rewindOverlap?.value || 0.2); // Overlap in seconds
-        const frequency = parseFloat(rewindFreq?.value || 0.5); // How often to step back
         
-        const intervalTime = (frequency / rewindSpeed) * 1000; // Adjust frequency to speed
+        // Function to get current interval time
+        const getIntervalTime = () => {
+            const frequency = parseFloat(rewindFreq?.value || 0.5);
+            return (frequency / rewindSpeed) * 1000;
+        };
         
-        rewindInterval = setInterval(() => {
+        let lastExecutionTime = Date.now();
+        
+        const executeRewind = () => {
             if (!audio || audio.currentTime <= 0) {
                 stopContinuousRewind();
                 //reset slider to 1x when reaching the beginning
@@ -256,6 +259,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return;
             }
+            
+            // reread parameters for real-time updates
+            const stepSize = parseFloat(rewindStepInput?.value || 1);
+            const overlap = parseFloat(rewindOverlap?.value || 0.2);
             
             // Calculate the start position for the chunk
             const chunkStart = Math.max(0, audio.currentTime - stepSize);
@@ -268,13 +275,22 @@ document.addEventListener('DOMContentLoaded', () => {
             // Move the playhead back to create rewind effect
             audio.currentTime = Math.max(0, audio.currentTime - stepSize);
             
-        }, intervalTime);
+            // Schedule next execution with current interval time
+            const currentTime = Date.now();
+            const nextInterval = getIntervalTime();
+            lastExecutionTime = currentTime;
+            
+            rewindInterval = setTimeout(executeRewind, nextInterval);
+        };
+        
+        // Start the first execution
+        executeRewind();
     }
 
     // Stop continuous rewinding
     function stopContinuousRewind() {
         if (rewindInterval) {
-            clearInterval(rewindInterval);
+            clearTimeout(rewindInterval);
             rewindInterval = null;
         }
         isRewinding = false;
