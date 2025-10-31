@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let rewindInterval = null; // For continuous rewinding
     let audioBuffer = null; // Store decoded audio for Web Audio API playback
     let isSeeking = false; // Track if user is dragging the progress bar
+    let isRewinding = false; // Track if currently in rewind mode
+    let wasPlayingBeforeRewind = false; // Track play state before rewinding
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
     const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
 
@@ -219,6 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (!audio || speed >= 0) return;
         
+        // Remember if audio was playing before rewind
+        wasPlayingBeforeRewind = !audio.paused;
         isRewinding = true;
         
         // Initialize Web Audio API for chunk playback
@@ -230,6 +234,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!audio.paused) {
             audio.pause();
         }
+        
+        // Update play button text
+        if (playButton) playButton.textContent = 'Pause';
         
         const rewindSpeed = Math.abs(speed); //convert negative to positive to match slider
         const stepSize = parseFloat(rewindStepInput?.value || 1); // Chunk size and step distance
@@ -373,12 +380,30 @@ document.addEventListener('DOMContentLoaded', () => {
     playButton?.addEventListener('click', () => {
         if (!audio) return;
         
-        if (audio.paused) {
-            audio.play().catch(err => {
-                console.error('Play failed:', err);
-            });
+        const currentSpeed = parseFloat(speedSlider?.value || '1');
+        
+        if (currentSpeed < 0) {
+            //if speed slider in rewind mode, play/pause in rewind mode
+            if (rewindInterval) {
+                //if in rewind - pause it
+                stopContinuousRewind();
+                wasPlayingBeforeRewind = false;
+                if (playButton) playButton.textContent = 'Play';
+            } else {
+                //if in rewind mode - resume rewinding
+                startContinuousRewind(currentSpeed);
+                wasPlayingBeforeRewind = true;
+                if (playButton) playButton.textContent = 'Pause';
+            }
         } else {
-            audio.pause();
+            //if in positive/forward playback mode, normal play/pause
+            if (audio.paused) {
+                audio.play().catch(err => {
+                    console.error('Play failed:', err);
+                });
+            } else {
+                audio.pause();
+            }
         }
     });
 
@@ -412,11 +437,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (audio) {
             if (v < 0) {
                 // Negative speed: start continuous rewind
-                startContinuousRewind(v);
+                if (!audio.paused || rewindInterval) {
+                    startContinuousRewind(v);
+                }
             } else {
                 // Positive speed: stop rewind and set playback rate
+                const wasRewindingActive = rewindInterval !== null;
                 stopContinuousRewind();
                 audio.playbackRate = v;
+                
+                // Resume forward playback if we were actively rewinding
+                if (wasRewindingActive) {
+                    //small delay to ensure audio is ready
+                    setTimeout(() => {
+                        audio.play().catch(err => {
+                            console.error('Play failed:', err);
+                        });
+                    }, 10);
+                    if (playButton) playButton.textContent = 'Pause';
+                }
             }
         }
     });
