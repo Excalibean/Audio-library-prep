@@ -22,10 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let audio = null;
     let currentAudio = null; //this is a url object
     let audioContext = null;
-    let sourceNode = null;
-    let gainNode = null;
     let rewindInterval = null; // For continuous rewinding
-    let isRewinding = false; // Track if currently in rewind mode
     let audioBuffer = null; // Store decoded audio for Web Audio API playback
     let isSeeking = false; // Track if user is dragging the progress bar
     const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
@@ -72,42 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Connect audio element to Web Audio API (for special effects if needed in future)
-    function connectAudioElement() {
-        if (!audioContext || !audio) return;
-        
-        if (!gainNode) {
-            gainNode = audioContext.createGain();
-            gainNode.connect(audioContext.destination);
-        }
-        
-        if (!sourceNode) {
-            try {
-                sourceNode = audioContext.createMediaElementSource(audio);
-                sourceNode.connect(gainNode);
-            } catch (err) {
-                console.error('Error connecting audio element:', err);
-            }
-        }
-    }
-
-    //apply fade in/out to prevent clicks (for future use)
-    function applyFade(fadeIn = true) {
-        if (!gainNode || !audioContext) return;
-        
-        const now = audioContext.currentTime;
-        gainNode.gain.cancelScheduledValues(now);
-        
-        if (fadeIn) {
-            // Fade in from 0 to 1 over FADE_TIME
-            gainNode.gain.setValueAtTime(0, now);
-            gainNode.gain.linearRampToValueAtTime(1, now + FADE_TIME);
-        } else {
-            // Fade out from current to 0 over FADE_TIME
-            gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-            gainNode.gain.linearRampToValueAtTime(0, now + FADE_TIME);
-        }
-    }
 
     // Pitch-preserving tempo adjustment using overlap-add technique
     function createTempoStretchedBuffer(sourceBuffer, tempoFactor) {
