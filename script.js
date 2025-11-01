@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const rewindButton = document.getElementById('rewind-button');
     const fastForwardButton = document.getElementById('fast-forward-button');
     const currentFile = document.getElementById('current-file');
+    const chunkSizeInput = document.getElementById('chunk-size');
+    const chunkSizeLabel = document.getElementById('chunk-size-label');
     const rewindStepInput = document.getElementById('rewind-step');
     const rewindStepLabel = document.getElementById('rewind-step-label');
     const rewindFreq = document.getElementById('rewind-freq');
@@ -20,25 +22,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const durationTimeDisplay = document.getElementById('duration-time');
 
     let audio = null;
-    let currentAudio = null; //this is a url object
+    let currentAudio = null;
     let audioContext = null;
-    let rewindInterval = null; // For continuous rewinding
-    let audioBuffer = null; // Store decoded audio for Web Audio API playback
-    let isSeeking = false; // Track if user is dragging the progress bar
-    let isRewinding = false; // Track if currently in rewind mode
-    let wasPlayingBeforeRewind = false; // Track play state before rewinding
-    const FADE_TIME = 0.04; // 40ms fade in/out to prevent clicks
-    const DEFAULT_TRACK = 'default_audiobook.mp3'; //default audio file path
+    let rewindInterval = null;
+    let audioBuffer = null;
+    let isSeeking = false;
+    let isRewinding = false;
+    let wasPlayingBeforeRewind = false;
+    
+    const FADE_TIME = 0.04;
+    const DEFAULT_TRACK = 'default_audiobook.mp3';
 
     //TO DO: add second slider for equilibrium point using formula below (lock the clockspeed to reduce varation)
     // note: low pass filter eq: dX/dt = -gamma(X - E(t)) where E(t) is time (equilibrium point) and gamma is how quick it converges
     //                            or simply put in code: X = X - alpha * (X - E)
 
+    // Helper functions
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
     }
 
-    // Format time in MM:SS format
+    //timestamp and progress bar
     function formatTime(seconds) {
         if (isNaN(seconds)) return '0:00';
         const mins = Math.floor(seconds / 60);
@@ -46,79 +50,106 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
-    // Update progress bar and time display
     function updateProgress() {
         if (!audio || isSeeking) return;
-        
         const progress = (audio.currentTime / audio.duration) * 100;
         if (progressBar) progressBar.value = progress;
         if (currentTimeDisplay) currentTimeDisplay.textContent = formatTime(audio.currentTime);
         if (durationTimeDisplay) durationTimeDisplay.textContent = formatTime(audio.duration);
     }
 
-    // Update parameter labels
+    //parameter labels in real-time
     function updateParameterLabels() {
-        if (rewindStepLabel) rewindStepLabel.textContent = `${parseFloat(rewindStepInput.value).toFixed(2)}s`;
-        if (rewindFreqLabel) rewindFreqLabel.textContent = `${parseFloat(rewindFreq.value).toFixed(2)}s`;
-        if (rewindOverlapLabel) rewindOverlapLabel.textContent = `${parseFloat(rewindOverlap.value).toFixed(2)}s`;
-        if (rewindPlaybackSpeedLabel) rewindPlaybackSpeedLabel.textContent = `${parseFloat(rewindPlaybackSpeed.value).toFixed(2)}x`;
+        const currentSpeed = Math.abs(parseFloat(speedSlider?.value || '1'));
+        const isNegative = parseFloat(speedSlider?.value || '1') < 0;
+        
+        const chunkMultiplier = parseFloat(chunkSizeInput?.value || 1);
+        const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
+        const baseFreq = parseFloat(rewindFreq?.value || 0.5);
+        const baseOverlap = parseFloat(rewindOverlap?.value || 0.2);
+        const basePlaybackSpeed = parseFloat(rewindPlaybackSpeed?.value || 1);
+        
+        if (isNegative && currentSpeed > 0) {
+            // Calculate actual values being used during rewind
+            const actualInterval = baseFreq / currentSpeed;
+            const baseChunkDuration = actualInterval + baseOverlap;
+            const actualChunkDuration = baseChunkDuration * chunkMultiplier;
+            const actualStep = actualInterval * stepMultiplier;
+            
+            if (chunkSizeLabel) {
+                chunkSizeLabel.textContent = `${chunkMultiplier.toFixed(2)}x (actual: ${actualChunkDuration.toFixed(2)}s)`;
+            }
+            if (rewindStepLabel) {
+                rewindStepLabel.textContent = `${stepMultiplier.toFixed(2)}x (actual: ${actualStep.toFixed(2)}s)`;
+            }
+            if (rewindFreqLabel) {
+                rewindFreqLabel.textContent = `${baseFreq.toFixed(2)}s (interval: ${actualInterval.toFixed(2)}s)`;
+            }
+            if (rewindOverlapLabel) {
+                rewindOverlapLabel.textContent = `${baseOverlap.toFixed(2)}s`;
+            }
+        } else {
+            // Show base values when not rewinding
+            if (chunkSizeLabel) {
+                chunkSizeLabel.textContent = `${chunkMultiplier.toFixed(2)}x`;
+            }
+            if (rewindStepLabel) {
+                rewindStepLabel.textContent = `${stepMultiplier.toFixed(2)}x`;
+            }
+            if (rewindFreqLabel) {
+                rewindFreqLabel.textContent = `${baseFreq.toFixed(2)}s`;
+            }
+            if (rewindOverlapLabel) {
+                rewindOverlapLabel.textContent = `${baseOverlap.toFixed(2)}s`;
+            }
+        }
+        
+        if (rewindPlaybackSpeedLabel) {
+            rewindPlaybackSpeedLabel.textContent = `${basePlaybackSpeed.toFixed(2)}x`;
+        }
     }
 
-    //web audio api initialization - only when needed for rewinding
     function initWebAudio() {
         if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
     }
 
-
-    // Pitch-preserving tempo adjustment using overlap-add technique
+    // Tempo stretching using overlap-add technique
     function createTempoStretchedBuffer(sourceBuffer, tempoFactor) {
-        if (!audioContext || !sourceBuffer) return null;
-        
-        // If tempo is 1.0, return original buffer
-        if (Math.abs(tempoFactor - 1.0) < 0.01) return sourceBuffer;
+        if (!audioContext || !sourceBuffer || Math.abs(tempoFactor - 1.0) < 0.01) {
+            return sourceBuffer;
+        }
         
         const sampleRate = sourceBuffer.sampleRate;
         const numberOfChannels = sourceBuffer.numberOfChannels;
         const originalLength = sourceBuffer.length;
-
-        // tempoFactor > 1 = faster/shorter, tempoFactor < 1 = slower/longer
         const newLength = Math.floor(originalLength / tempoFactor);
         
-        // Create new buffer for stretched audio
-        const stretchedBuffer = audioContext.createBuffer(
-            numberOfChannels,
-            newLength,
-            sampleRate
-        );
-        
-        const windowSize = Math.floor(sampleRate * 0.04); // 40ms window
+        //buffer for audio manipulation (hopSize is original audio step for tempo change)
+        const stretchedBuffer = audioContext.createBuffer(numberOfChannels, newLength, sampleRate);
+        const windowSize = Math.floor(sampleRate * 0.04);
         const hopSize = Math.floor(windowSize / 2);
         const outputHopSize = Math.floor(hopSize / tempoFactor);
         
-        // Process each channel
         for (let channel = 0; channel < numberOfChannels; channel++) {
             const inputData = sourceBuffer.getChannelData(channel);
             const outputData = stretchedBuffer.getChannelData(channel);
-            
             let inputPos = 0;
             let outputPos = 0;
             
-            // Overlap-add processing
+            //windowing using Hann window
             while (inputPos + windowSize < originalLength && outputPos < newLength) {
-                // Copy and apply Hann window
                 for (let i = 0; i < windowSize && outputPos + i < newLength; i++) {
                     const hannWindow = 0.5 * (1 - Math.cos(2 * Math.PI * i / windowSize));
                     const sample = inputData[inputPos + i] * hannWindow;
                     outputData[outputPos + i] = (outputData[outputPos + i] || 0) + sample;
                 }
-                
                 inputPos += hopSize;
                 outputPos += outputHopSize;
             }
             
-            // Normalize output to prevent clipping
+            // Normalize to prevent clipping
             let maxAmplitude = 0;
             for (let i = 0; i < newLength; i++) {
                 maxAmplitude = Math.max(maxAmplitude, Math.abs(outputData[i]));
@@ -133,174 +164,124 @@ document.addEventListener('DOMContentLoaded', () => {
         return stretchedBuffer;
     }
 
-    // Play an overlapping audio chunk using Web Audio API with tempo stretching
+    //chunking and overlapping playback
     function playOverlappingChunk(startTime, duration, overlap) {
         if (!audioContext || !audioBuffer) return;
 
         const tempoFactor = parseFloat(rewindPlaybackSpeed?.value || 1);
-        
-        // Extract chunk from main buffer
         const startSample = Math.floor(startTime * audioBuffer.sampleRate);
         const durationSamples = Math.floor(duration * audioBuffer.sampleRate);
-        const numberOfChannels = audioBuffer.numberOfChannels;
-        
-        // Ensure we don't exceed buffer bounds
         const actualDurationSamples = Math.min(durationSamples, audioBuffer.length - startSample);
+        
         if (actualDurationSamples <= 0) return;
         
-        // Create buffer for the chunk
+        // Create and copy chunk buffer
         const chunkBuffer = audioContext.createBuffer(
-            numberOfChannels,
+            audioBuffer.numberOfChannels,
             actualDurationSamples,
             audioBuffer.sampleRate
         );
         
-        // Copy chunk data
-        for (let channel = 0; channel < numberOfChannels; channel++) {
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
             const sourceData = audioBuffer.getChannelData(channel);
             const chunkData = chunkBuffer.getChannelData(channel);
-            
-            for (let i = 0; i < actualDurationSamples; i++) {
-                const sourceIndex = startSample + i;
-                if (sourceIndex < sourceData.length) {
-                    chunkData[i] = sourceData[sourceIndex];
-                }
-            }
+            chunkData.set(sourceData.subarray(startSample, startSample + actualDurationSamples));
         }
         
-        // Apply tempo stretching while preserving pitch
         const stretchedBuffer = createTempoStretchedBuffer(chunkBuffer, tempoFactor);
-        
         if (!stretchedBuffer) return;
         
-        // Create buffer source for playback
-        const chunkSource = audioContext.createBufferSource();
-        chunkSource.buffer = stretchedBuffer;
-        
-        // Create gain node for crossfading
-        const chunkGain = audioContext.createGain();
-        chunkSource.connect(chunkGain);
-        chunkGain.connect(audioContext.destination);
+        // Setup playback with crossfade
+        const source = audioContext.createBufferSource();
+        const gain = audioContext.createGain();
+        source.buffer = stretchedBuffer;
+        source.connect(gain).connect(audioContext.destination);
         
         const now = audioContext.currentTime;
         const fadeDuration = Math.min(overlap / 2, FADE_TIME);
         const chunkDuration = stretchedBuffer.duration;
         
-        // Fade in at start
-        chunkGain.gain.setValueAtTime(0, now);
-        chunkGain.gain.linearRampToValueAtTime(1, now + fadeDuration);
+        // Fade in/out to prevent clicks
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(1, now + fadeDuration);
         
-        // Fade out at end
         const fadeOutStart = now + chunkDuration - fadeDuration;
         if (fadeOutStart > now) {
-            chunkGain.gain.setValueAtTime(1, fadeOutStart);
-            chunkGain.gain.linearRampToValueAtTime(0, now + chunkDuration);
+            gain.gain.setValueAtTime(1, fadeOutStart);
+            gain.gain.linearRampToValueAtTime(0, now + chunkDuration);
         }
         
-        // Play the tempo-stretched chunk
-        chunkSource.start(now);
-        chunkSource.stop(now + chunkDuration);
+        source.start(now);
+        source.stop(now + chunkDuration);
     }
 
-    //temporal manipulation functions for audio
-    //default to 5 seconds if no argument
-    function rewind(seconds = 5) {
-        if (!audio) return;
-        audio.currentTime = Math.max(0, audio.currentTime - seconds);
-    }
-
-    function fastForward(seconds = 5) {
-        if (!audio) return;
-        audio.currentTime = Math.min(audio.duration, audio.currentTime + seconds);
-    }
-
-    //start continuous rewinding based on negative speed with overlapping chunks
+    //rewinding functions
     function startContinuousRewind(speed) {
-        // stop existing rewind interval
         stopContinuousRewind();
-        
+        //check for rewinding condition: negative speed
         if (!audio || speed >= 0) return;
         
-        // Remember if audio was playing before rewind
+        //pause forward playback and mark as rewinding
         wasPlayingBeforeRewind = !audio.paused;
         isRewinding = true;
         
-        // Initialize Web Audio API for chunk playback
-        if (!audioContext) {
-            initWebAudio();
-        }
-        
-        // Pause the main audio element during rewinding
-        if (!audio.paused) {
-            audio.pause();
-        }
-        
-        // Update play button text
+        if (!audioContext) initWebAudio();
+        if (!audio.paused) audio.pause();
         if (playButton) playButton.textContent = 'Pause';
-        
-        const rewindSpeed = Math.abs(speed); //convert negative to positive to match slider
-        
-        // Function to get current interval time
-        const getIntervalTime = () => {
-            const frequency = parseFloat(rewindFreq?.value || 0.5);
-            return (frequency / rewindSpeed) * 1000;
-        };
-        
-        let lastExecutionTime = Date.now();
         
         const executeRewind = () => {
             if (!audio || audio.currentTime <= 0) {
                 stopContinuousRewind();
-                //reset slider to 1x when reaching the beginning
                 if (speedSlider) {
                     speedSlider.value = '1';
                     setSpeedLabel(1);
                     if (audio) audio.playbackRate = 1;
                 }
+                updateParameterLabels();
                 return;
             }
             
-            // reread parameters for real-time updates
-            const stepSize = parseFloat(rewindStepInput?.value || 1);
+            //parameters for speedslider, period, and overlap duration
+            const currentSpeed = Math.abs(parseFloat(speedSlider?.value || '1'));
+            const baseFrequency = parseFloat(rewindFreq?.value || 0.5);
             const overlap = parseFloat(rewindOverlap?.value || 0.2);
+            const chunkMultiplier = parseFloat(chunkSizeInput?.value || 1);
+            const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
             
-            // Calculate the start position for the chunk
-            const chunkStart = Math.max(0, audio.currentTime - stepSize);
+            // Calculate dynamic parameters with separate multipliers
+            const interval = baseFrequency / currentSpeed;
+            const stepSize = interval * stepMultiplier; // How far playhead moves
+            const baseChunkDuration = interval + overlap;
+            const chunkDuration = baseChunkDuration * chunkMultiplier; // How long audio chunk is
             
-            // Play overlapping chunk using Web Audio API
+            //get start of chunk to play
+            const chunkStart = Math.max(0, audio.currentTime - chunkDuration);
+            
             if (audioBuffer) {
-                playOverlappingChunk(chunkStart, stepSize, overlap);
+                playOverlappingChunk(chunkStart, chunkDuration, overlap);
             }
             
-            // Move the playhead back to create rewind effect
             audio.currentTime = Math.max(0, audio.currentTime - stepSize);
+            updateParameterLabels();
             
-            // Schedule next execution with current interval time
-            const currentTime = Date.now();
-            const nextInterval = getIntervalTime();
-            lastExecutionTime = currentTime;
-            
-            rewindInterval = setTimeout(executeRewind, nextInterval);
+            rewindInterval = setTimeout(executeRewind, interval * 1000);
         };
         
-        // Start the first execution
         executeRewind();
     }
 
-    // Stop continuous rewinding
     function stopContinuousRewind() {
         if (rewindInterval) {
             clearTimeout(rewindInterval);
             rewindInterval = null;
         }
         isRewinding = false;
+        updateParameterLabels();
     }
 
-    // Decode audio file into buffer for Web Audio API
+    //file management and loading audio
     async function decodeAudioFile(arrayBuffer) {
-        if (!audioContext) {
-            initWebAudio();
-        }
+        if (!audioContext) initWebAudio();
         try {
             audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
         } catch (err) {
@@ -308,207 +289,152 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function setupAudioElement() {
+        if (audio) return;
+        
+        audio = new Audio();
+        audio.preload = 'metadata';
+        
+        audio.addEventListener('ended', () => {
+            if (!isRewinding && playButton) playButton.textContent = 'Play';
+        });
+        audio.addEventListener('play', () => {
+            if (!isRewinding && playButton) playButton.textContent = 'Pause';
+        });
+        audio.addEventListener('pause', () => {
+            if (!isRewinding && playButton) playButton.textContent = 'Play';
+        });
+        audio.addEventListener('timeupdate', updateProgress);
+        audio.addEventListener('loadedmetadata', () => {
+            updateProgress();
+            if (progressBar) progressBar.max = 100;
+        });
+    }
+
     function loadFile(file) {
         if (!file) return;
-        //remove previous audio file (a URL object)
+        
         if (currentAudio) {
             URL.revokeObjectURL(currentAudio);
             currentAudio = null;
         }
 
-        //play button fucntionality
-        if (!audio) {
-            audio = new Audio();
-            audio.preload = 'metadata';
-            audio.addEventListener('ended', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-            audio.addEventListener('play', () => {
-                if (playButton) playButton.textContent = 'Pause';
-            });
-            audio.addEventListener('pause', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-            // Update progress bar during playback
-            audio.addEventListener('timeupdate', updateProgress);
-            // Update duration display when metadata is loaded
-            audio.addEventListener('loadedmetadata', () => {
-                updateProgress();
-                if (progressBar) progressBar.max = 100;
-            });
-
-        } else {
-            //pause before audio change
-            audio.pause();
-        }
+        setupAudioElement();
+        if (audio) audio.pause();
 
         currentAudio = URL.createObjectURL(file);
         audio.src = currentAudio;
         audio.playbackRate = parseFloat(speedSlider?.value || '1');
+        
         if (currentFile) currentFile.textContent = file.name;
-        if (playButton) playButton.disabled = false;
-        if (rewindButton) rewindButton.disabled = false;
-        if (fastForwardButton) fastForwardButton.disabled = false;
+        [playButton, rewindButton, fastForwardButton].forEach(btn => {
+            if (btn) btn.disabled = false;
+        });
 
-        // Decode audio for Web Audio API (for overlapping chunks)
         file.arrayBuffer().then(decodeAudioFile);
     }
 
-    // Load default track from URL
     function loadDefaultTrack() {
-        if (!audio) {
-            audio = new Audio();
-            audio.preload = 'metadata';
-            audio.addEventListener('ended', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-            audio.addEventListener('play', () => {
-                if (playButton) playButton.textContent = 'Pause';
-            });
-            audio.addEventListener('pause', () => {
-                if (playButton) playButton.textContent = 'Play';
-            });
-            // Update progress bar during playback
-            audio.addEventListener('timeupdate', updateProgress);
-            // Update duration display when metadata is loaded
-            audio.addEventListener('loadedmetadata', () => {
-                updateProgress();
-                if (progressBar) progressBar.max = 100;
-            });
-
-        }
-
+        setupAudioElement();
+        
         audio.src = DEFAULT_TRACK;
         audio.playbackRate = parseFloat(speedSlider?.value || '1');
+        
         if (currentFile) currentFile.textContent = 'Default Track';
-        if (playButton) playButton.disabled = false;
-        if (rewindButton) rewindButton.disabled = false;
-        if (fastForwardButton) fastForwardButton.disabled = false;
+        [playButton, rewindButton, fastForwardButton].forEach(btn => {
+            if (btn) btn.disabled = false;
+        });
 
-        // Fetch and decode default track for Web Audio API
         fetch(DEFAULT_TRACK)
             .then(response => response.arrayBuffer())
             .then(decodeAudioFile)
             .catch(err => console.error('Error loading default track:', err));
     }
 
-    //play/pause button behavior
+    // Event Listeners
     playButton?.addEventListener('click', () => {
         if (!audio) return;
         
         const currentSpeed = parseFloat(speedSlider?.value || '1');
         
         if (currentSpeed < 0) {
-            //if speed slider in rewind mode, play/pause in rewind mode
             if (rewindInterval) {
-                //if in rewind - pause it
                 stopContinuousRewind();
                 wasPlayingBeforeRewind = false;
                 if (playButton) playButton.textContent = 'Play';
             } else {
-                //if in rewind mode - resume rewinding
                 startContinuousRewind(currentSpeed);
                 wasPlayingBeforeRewind = true;
                 if (playButton) playButton.textContent = 'Pause';
             }
         } else {
-            //if in positive/forward playback mode, normal play/pause
-            if (audio.paused) {
-                audio.play().catch(err => {
-                    console.error('Play failed:', err);
-                });
-            } else {
-                audio.pause();
-            }
+            audio.paused ? audio.play().catch(console.error) : audio.pause();
         }
     });
 
-    //rewind button behavior
     rewindButton?.addEventListener('click', () => {
-        rewind(rewindStepInput ? parseFloat(rewindStepInput.value) : 1); //rewind by user rewind step
+        if (!audio) return;
+        const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
+        audio.currentTime = Math.max(0, audio.currentTime - stepMultiplier);
     });
 
     fastForwardButton?.addEventListener('click', () => {
-        fastForward(1); // Fast forward 1 second
+        if (!audio) return;
+        audio.currentTime = Math.min(audio.duration, audio.currentTime + 1);
     });
 
-    //upload form
     uploadForm?.addEventListener('submit', (e) => {
         e.preventDefault();
-        const files = fileInput.files;
-        if (files && files.length) loadFile(files[0]); // load first selected file
+        if (fileInput?.files?.length) loadFile(fileInput.files[0]);
     });
 
-    //file selection
     fileInput?.addEventListener('change', () => {
-        const files = fileInput.files;
-        if (files && files.length) loadFile(files[0]);
+        if (fileInput?.files?.length) loadFile(fileInput.files[0]);
     });
 
-    //speed slider behavior
     speedSlider?.addEventListener('input', () => {
         const v = parseFloat(speedSlider.value || '1');
         setSpeedLabel(v);
+        updateParameterLabels();
         
-        if (audio) {
-            if (v < 0) {
-                // Negative speed: start continuous rewind
-                if (!audio.paused || rewindInterval) {
-                    startContinuousRewind(v);
-                }
-            } else {
-                // Positive speed: stop rewind and set playback rate
-                const wasRewindingActive = rewindInterval !== null;
-                stopContinuousRewind();
-                audio.playbackRate = v;
-                
-                // Resume forward playback if we were actively rewinding
-                if (wasRewindingActive) {
-                    //small delay to ensure audio is ready
-                    setTimeout(() => {
-                        audio.play().catch(err => {
-                            console.error('Play failed:', err);
-                        });
-                    }, 10);
-                    if (playButton) playButton.textContent = 'Pause';
-                }
+        if (!audio) return;
+        
+        if (v < 0) {
+            if (rewindInterval) return; // Already rewinding
+            if (!audio.paused) startContinuousRewind(v);
+        } else {
+            const wasRewindingActive = rewindInterval !== null;
+            stopContinuousRewind();
+            audio.playbackRate = v;
+            
+            if (wasRewindingActive && wasPlayingBeforeRewind) {
+                audio.play().catch(console.error);
+                if (playButton) playButton.textContent = 'Pause';
             }
         }
     });
 
-    // Progress bar seeking
-    progressBar?.addEventListener('mousedown', () => {
-        isSeeking = true;
-    });
-
-    progressBar?.addEventListener('mouseup', () => {
-        isSeeking = false;
-    });
-
+    progressBar?.addEventListener('mousedown', () => isSeeking = true);
+    progressBar?.addEventListener('mouseup', () => isSeeking = false);
     progressBar?.addEventListener('input', () => {
         if (!audio) return;
-        const seekTime = (progressBar.value / 100) * audio.duration;
-        audio.currentTime = seekTime;
+        audio.currentTime = (progressBar.value / 100) * audio.duration;
         updateProgress();
     });
 
-    // Add event listeners for parameter sliders
-    rewindStepInput?.addEventListener('input', updateParameterLabels);
-    rewindFreq?.addEventListener('input', updateParameterLabels);
-    rewindOverlap?.addEventListener('input', updateParameterLabels);
-    rewindPlaybackSpeed?.addEventListener('input', updateParameterLabels);
+    [chunkSizeInput, rewindStepInput, rewindFreq, rewindOverlap, rewindPlaybackSpeed].forEach(slider => {
+        slider?.addEventListener('input', updateParameterLabels);
+    });
 
-    //initialize labels
+    // Initialize
     setSpeedLabel(parseFloat(speedSlider?.value || '1'));
     updateParameterLabels();
-
-    // Load default track on page load
     loadDefaultTrack();
 
-    //cleanup object URL on unload
+    // Cleanup
     window.addEventListener('beforeunload', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
         if (audioContext) audioContext.close();
-        if (rewindInterval) clearInterval(rewindInterval);
+        if (rewindInterval) clearTimeout(rewindInterval);
     });
 });
