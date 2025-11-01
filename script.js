@@ -51,9 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateProgress() {
-        if (!audio || isSeeking) return;
+        if (!audio) return;
         const progress = (audio.currentTime / audio.duration) * 100;
-        if (progressBar) progressBar.value = progress;
+        if (progressBar && !isSeeking) progressBar.value = progress; // Only update bar if not seeking
         if (currentTimeDisplay) currentTimeDisplay.textContent = formatTime(audio.currentTime);
         if (durationTimeDisplay) durationTimeDisplay.textContent = formatTime(audio.duration);
     }
@@ -419,7 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
     progressBar?.addEventListener('input', () => {
         if (!audio) return;
         audio.currentTime = (progressBar.value / 100) * audio.duration;
-        updateProgress();
+        updateProgress(); // Call updateProgress directly to update time display
     });
 
     [chunkSizeInput, rewindStepInput, rewindFreq, rewindOverlap, rewindPlaybackSpeed].forEach(slider => {
