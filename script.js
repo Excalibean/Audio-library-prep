@@ -11,8 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chunkSizeLabel = document.getElementById('chunk-size-label');
     const rewindStepInput = document.getElementById('rewind-step');
     const rewindStepLabel = document.getElementById('rewind-step-label');
-    const rewindFreq = document.getElementById('rewind-freq');
-    const rewindFreqLabel = document.getElementById('rewind-freq-label');
+    const rewindPeriod = document.getElementById('rewind-freq'); // Changed from rewindFreq
+    const rewindPeriodLabel = document.getElementById('rewind-freq-label'); // Changed from rewindFreqLabel
     const rewindOverlap = document.getElementById('rewind-overlap');
     const rewindOverlapLabel = document.getElementById('rewind-overlap-label');
     const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed');
@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // note: low pass filter eq: dX/dt = -gamma(X - E(t)) where E(t) is time (equilibrium point) and gamma is how quick it converges
     //                            or simply put in code: X = X - alpha * (X - E)
 
+
     // Helper functions
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
@@ -53,7 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateProgress() {
         if (!audio) return;
         const progress = (audio.currentTime / audio.duration) * 100;
-        if (progressBar && !isSeeking) progressBar.value = progress; // Only update bar if not seeking
+        if (progressBar && !isSeeking) {
+            progressBar.value = progress;
+            // Update progress bar fill for Chrome/Safari/Edge
+            progressBar.style.background = `linear-gradient(to right, cornflowerblue 0%, cornflowerblue ${progress}%, #e0e0e0 ${progress}%, #e0e0e0 100%)`;
+        }
         if (currentTimeDisplay) currentTimeDisplay.textContent = formatTime(audio.currentTime);
         if (durationTimeDisplay) durationTimeDisplay.textContent = formatTime(audio.duration);
     }
@@ -65,16 +70,16 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const chunkMultiplier = parseFloat(chunkSizeInput?.value || 1);
         const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
-        const baseFreq = parseFloat(rewindFreq?.value || 0.5);
-        const baseOverlap = parseFloat(rewindOverlap?.value || 0.2);
+        const basePeriod = parseFloat(rewindPeriod?.value || 0.5); // Changed from rewindFreq
+        const baseOverlap = parseFloat(rewindOverlap?.value || 0.3);
         const basePlaybackSpeed = parseFloat(rewindPlaybackSpeed?.value || 1);
         
         if (isNegative && currentSpeed > 0) {
-            // Calculate actual values being used during rewind
-            const actualInterval = baseFreq / currentSpeed;
+            // Calculate actual values being used during rewind (for user display)
+            const actualInterval = basePeriod; // Period stays CONSTANT
+            const actualStep = (basePeriod * currentSpeed) * stepMultiplier; //how far to step back in rewind
             const baseChunkDuration = actualInterval + baseOverlap;
             const actualChunkDuration = baseChunkDuration * chunkMultiplier;
-            const actualStep = actualInterval * stepMultiplier;
             
             if (chunkSizeLabel) {
                 chunkSizeLabel.textContent = `${chunkMultiplier.toFixed(2)}x (actual: ${actualChunkDuration.toFixed(2)}s)`;
@@ -82,8 +87,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rewindStepLabel) {
                 rewindStepLabel.textContent = `${stepMultiplier.toFixed(2)}x (actual: ${actualStep.toFixed(2)}s)`;
             }
-            if (rewindFreqLabel) {
-                rewindFreqLabel.textContent = `${baseFreq.toFixed(2)}s (interval: ${actualInterval.toFixed(2)}s)`;
+            if (rewindPeriodLabel) { // Changed from rewindFreqLabel
+                rewindPeriodLabel.textContent = `${basePeriod.toFixed(2)}s (period: ${actualInterval.toFixed(2)}s)`;
             }
             if (rewindOverlapLabel) {
                 rewindOverlapLabel.textContent = `${baseOverlap.toFixed(2)}s`;
@@ -96,8 +101,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rewindStepLabel) {
                 rewindStepLabel.textContent = `${stepMultiplier.toFixed(2)}x`;
             }
-            if (rewindFreqLabel) {
-                rewindFreqLabel.textContent = `${baseFreq.toFixed(2)}s`;
+            if (rewindPeriodLabel) { // Changed from rewindFreqLabel
+                rewindPeriodLabel.textContent = `${basePeriod.toFixed(2)}s`;
             }
             if (rewindOverlapLabel) {
                 rewindOverlapLabel.textContent = `${baseOverlap.toFixed(2)}s`;
@@ -243,14 +248,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             //parameters for speedslider, period, and overlap duration
             const currentSpeed = Math.abs(parseFloat(speedSlider?.value || '1'));
-            const baseFrequency = parseFloat(rewindFreq?.value || 0.5);
-            const overlap = parseFloat(rewindOverlap?.value || 0.2);
+            const basePeriod = parseFloat(rewindPeriod?.value || 0.5); // Changed from rewindFreq
+            const overlap = parseFloat(rewindOverlap?.value || 0.3);
             const chunkMultiplier = parseFloat(chunkSizeInput?.value || 1);
             const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
             
-            // Calculate dynamic parameters with separate multipliers
-            const interval = baseFrequency / currentSpeed;
-            const stepSize = interval * stepMultiplier; // How far playhead moves
+            // Calculate dynamic parameters with separate multipliers (in rewind use, back end)
+            const interval = basePeriod; // Keep interval constant (period between chunks)
+            const stepSize = (basePeriod * currentSpeed) * stepMultiplier; // how far to rewind each step
             const baseChunkDuration = interval + overlap;
             const chunkDuration = baseChunkDuration * chunkMultiplier; // How long audio chunk is
             
@@ -422,7 +427,8 @@ document.addEventListener('DOMContentLoaded', () => {
         updateProgress(); // Call updateProgress directly to update time display
     });
 
-    [chunkSizeInput, rewindStepInput, rewindFreq, rewindOverlap, rewindPlaybackSpeed].forEach(slider => {
+    [chunkSizeInput, rewindStepInput, rewindPeriod, rewindOverlap, rewindPlaybackSpeed].forEach(slider => {
+        // Changed from rewindFreq to rewindPeriod
         slider?.addEventListener('input', updateParameterLabels);
     });
 
