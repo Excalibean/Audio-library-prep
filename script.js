@@ -410,7 +410,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             const wasRewindingActive = rewindInterval !== null;
             stopContinuousRewind();
-            audio.playbackRate = v;
+
+            //prevent lower than 0.25x speeds, unsupported by HTML5, throws error
+            const clampedRate = Math.max(0.07, Math.min(4, v));
+            audio.playbackRate = clampedRate;
             
             if (wasRewindingActive && wasPlayingBeforeRewind) {
                 audio.play().catch(console.error);
