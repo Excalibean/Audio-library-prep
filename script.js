@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+
     const uploadForm = document.getElementById('uploadForm');
     const fileInput = document.getElementById('audio-file');
     const speedSlider = document.getElementById('speed-slider');
@@ -505,4 +505,3 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rewindInterval) clearTimeout(rewindInterval);
         if (speedIntegratorInterval) clearInterval(speedIntegratorInterval);
     });
-});
