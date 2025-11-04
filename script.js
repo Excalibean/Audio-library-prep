@@ -11,8 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chunkSizeLabel = document.getElementById('chunk-size-label');
     const rewindStepInput = document.getElementById('rewind-step');
     const rewindStepLabel = document.getElementById('rewind-step-label');
-    const rewindPeriod = document.getElementById('rewind-freq'); // Changed from rewindFreq
-    const rewindPeriodLabel = document.getElementById('rewind-freq-label'); // Changed from rewindFreqLabel
+    const rewindPeriod = document.getElementById('rewind-freq');
+    const rewindPeriodLabel = document.getElementById('rewind-freq-label');
     const rewindOverlap = document.getElementById('rewind-overlap');
     const rewindOverlapLabel = document.getElementById('rewind-overlap-label');
     const rewindPlaybackSpeed = document.getElementById('rewind-playback-speed');
@@ -33,14 +33,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const FADE_TIME = 0.04;
     const DEFAULT_TRACK = 'default_audiobook.mp3';
 
-    //TO DO: add second slider for equilibrium point using formula below (lock the clockspeed to reduce varation)
-    // note: low pass filter eq: dX/dt = -gamma(X - E(t)) where E(t) is time (equilibrium point) and gamma is how quick it converges
-    //                            or simply put in code: X = X - alpha * (X - E)
-
+    // leaky integrator parameters for speed slider
+    const TICK_MS = 50; // Update every 50ms
+    const ALPHA = 0.15; // Convergence rate (0-1, higher = faster response)
+    let speedTarget = 1.0; // Target speed from slider
+    let speedActual = 1.0; // Actual speed (smoothed)
+    let speedIntegratorInterval = null;
 
     // Helper functions
     function setSpeedLabel(v) {
         if (speedLabel) speedLabel.textContent = `${v.toFixed(2)}x`;
+    }
+
+    // Add a separate function for the actual speed label
+    function setActualSpeedLabel(v) {
+        const actualSpeedLabel = document.getElementById('actual-speed-label');
+        if (actualSpeedLabel) actualSpeedLabel.textContent = `${v.toFixed(2)}x`;
     }
 
     //timestamp and progress bar
@@ -56,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const progress = (audio.currentTime / audio.duration) * 100;
         if (progressBar && !isSeeking) {
             progressBar.value = progress;
-            // Update progress bar fill for Chrome/Safari/Edge
+            //update progress bar fill
             progressBar.style.background = `linear-gradient(to right, cornflowerblue 0%, cornflowerblue ${progress}%, #e0e0e0 ${progress}%, #e0e0e0 100%)`;
         }
         if (currentTimeDisplay) currentTimeDisplay.textContent = formatTime(audio.currentTime);
@@ -65,12 +73,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     //parameter labels in real-time
     function updateParameterLabels() {
-        const currentSpeed = Math.abs(parseFloat(speedSlider?.value || '1'));
-        const isNegative = parseFloat(speedSlider?.value || '1') < 0;
+        const currentSpeed = Math.abs(speedActual); // Use smoothed speed
+        const isNegative = speedActual < 0;
         
         const chunkMultiplier = parseFloat(chunkSizeInput?.value || 1);
         const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
-        const basePeriod = parseFloat(rewindPeriod?.value || 0.5); // Changed from rewindFreq
+        const basePeriod = parseFloat(rewindPeriod?.value || 0.5);
         const baseOverlap = parseFloat(rewindOverlap?.value || 0.3);
         const basePlaybackSpeed = parseFloat(rewindPlaybackSpeed?.value || 1);
         
@@ -87,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rewindStepLabel) {
                 rewindStepLabel.textContent = `${stepMultiplier.toFixed(2)}x (actual: ${actualStep.toFixed(2)}s)`;
             }
-            if (rewindPeriodLabel) { // Changed from rewindFreqLabel
+            if (rewindPeriodLabel) {
                 rewindPeriodLabel.textContent = `${basePeriod.toFixed(2)}s (period: ${actualInterval.toFixed(2)}s)`;
             }
             if (rewindOverlapLabel) {
@@ -101,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rewindStepLabel) {
                 rewindStepLabel.textContent = `${stepMultiplier.toFixed(2)}x`;
             }
-            if (rewindPeriodLabel) { // Changed from rewindFreqLabel
+            if (rewindPeriodLabel) {
                 rewindPeriodLabel.textContent = `${basePeriod.toFixed(2)}s`;
             }
             if (rewindOverlapLabel) {
@@ -112,6 +120,58 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rewindPlaybackSpeedLabel) {
             rewindPlaybackSpeedLabel.textContent = `${basePlaybackSpeed.toFixed(2)}x`;
         }
+    }
+
+    // Start leaky integrator for speed slider
+    function startSpeedIntegrator() {
+        if (speedIntegratorInterval) return; // Already running
+        
+        speedIntegratorInterval = setInterval(() => {
+            // Advance speedActual toward speedTarget
+            speedActual = speedActual + ALPHA * (speedTarget - speedActual);
+            
+            // Clamp to slider min/max
+            const min = parseFloat(speedSlider?.min || -2);
+            const max = parseFloat(speedSlider?.max || 4);
+            speedActual = Math.min(max, Math.max(min, speedActual));
+            
+            // Update ONLY the actual speed label (not the target label)
+            setActualSpeedLabel(speedActual);
+            
+            // Update integrator display slider
+            updateIntegratorDisplay();
+            
+            if (!audio) return;
+            
+            //apply the smoothed speed
+            if (speedActual < 0) {
+                //negative speed - use rewind mode
+                if (!rewindInterval && !audio.paused) {
+                    startContinuousRewind(speedActual);
+                } else if (rewindInterval) {
+                    //already rewinding, parameters will be read from speedActual
+                    updateParameterLabels();
+                }
+            } else {
+                //positive speed - use normal playback
+                const wasRewindingActive = rewindInterval !== null;
+                
+                if (wasRewindingActive) {
+                    stopContinuousRewind();
+                }
+                
+                //clamp playback rate to HTML5 audio supported range
+                const clampedRate = Math.max(0.25, Math.min(4, speedActual));
+                audio.playbackRate = clampedRate;
+                
+                if (wasRewindingActive && wasPlayingBeforeRewind) {
+                    audio.play().catch(console.error);
+                    if (playButton) playButton.textContent = 'Pause';
+                }
+                
+                updateParameterLabels();
+            }
+        }, TICK_MS);
     }
 
     function initWebAudio() {
@@ -239,6 +299,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 stopContinuousRewind();
                 if (speedSlider) {
                     speedSlider.value = '1';
+                    speedTarget = 1.0;
+                    speedActual = 1.0;
                     setSpeedLabel(1);
                     if (audio) audio.playbackRate = 1;
                 }
@@ -247,13 +309,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             //parameters for speedslider, period, and overlap duration
-            const currentSpeed = Math.abs(parseFloat(speedSlider?.value || '1'));
-            const basePeriod = parseFloat(rewindPeriod?.value || 0.5); // Changed from rewindFreq
+            const currentSpeed = Math.abs(speedActual); // Use smoothed speed
+            const basePeriod = parseFloat(rewindPeriod?.value || 0.5);
             const overlap = parseFloat(rewindOverlap?.value || 0.3);
             const chunkMultiplier = parseFloat(chunkSizeInput?.value || 1);
             const stepMultiplier = parseFloat(rewindStepInput?.value || 1);
             
-            // Calculate dynamic parameters with separate multipliers (in rewind use, back end)
+            // Calculate adjustable parameters with separate multipliers (in rewind use, back end)
             const interval = basePeriod; // Keep interval constant (period between chunks)
             const stepSize = (basePeriod * currentSpeed) * stepMultiplier; // how far to rewind each step
             const baseChunkDuration = interval + overlap;
@@ -329,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         currentAudio = URL.createObjectURL(file);
         audio.src = currentAudio;
-        audio.playbackRate = parseFloat(speedSlider?.value || '1');
+        audio.playbackRate = speedActual; // Use smoothed speed
         
         if (currentFile) currentFile.textContent = file.name;
         [playButton, rewindButton, fastForwardButton].forEach(btn => {
@@ -343,7 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setupAudioElement();
         
         audio.src = DEFAULT_TRACK;
-        audio.playbackRate = parseFloat(speedSlider?.value || '1');
+        audio.playbackRate = speedActual; // Use smoothed speed
         
         if (currentFile) currentFile.textContent = 'Default Track';
         [playButton, rewindButton, fastForwardButton].forEach(btn => {
@@ -356,11 +418,25 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch(err => console.error('Error loading default track:', err));
     }
 
+    //function to update the integrator visualization
+    function updateIntegratorDisplay() {
+        const actualSpeedLabel = document.getElementById('actual-speed-label');
+        const actualSpeedDisplay = document.getElementById('actual-speed-display');
+        
+        if (actualSpeedLabel) {
+            actualSpeedLabel.textContent = `${speedActual.toFixed(2)}x`;
+        }
+        
+        if (actualSpeedDisplay) {
+            actualSpeedDisplay.value = speedActual;
+        }
+    }
+
     // Event Listeners
     playButton?.addEventListener('click', () => {
         if (!audio) return;
         
-        const currentSpeed = parseFloat(speedSlider?.value || '1');
+        const currentSpeed = speedActual; // Use smoothed speed
         
         if (currentSpeed < 0) {
             if (rewindInterval) {
@@ -398,28 +474,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     speedSlider?.addEventListener('input', () => {
-        const v = parseFloat(speedSlider.value || '1');
-        setSpeedLabel(v);
-        updateParameterLabels();
-        
-        if (!audio) return;
-        
-        if (v < 0) {
-            if (rewindInterval) return; // Already rewinding
-            if (!audio.paused) startContinuousRewind(v);
-        } else {
-            const wasRewindingActive = rewindInterval !== null;
-            stopContinuousRewind();
-
-            //prevent lower than 0.25x speeds, unsupported by HTML5, throws error
-            const clampedRate = Math.max(0.07, Math.min(4, v));
-            audio.playbackRate = clampedRate;
-            
-            if (wasRewindingActive && wasPlayingBeforeRewind) {
-                audio.play().catch(console.error);
-                if (playButton) playButton.textContent = 'Pause';
-            }
-        }
+        speedTarget = parseFloat(speedSlider.value || '1');
+        setSpeedLabel(speedTarget); // Update target label immediately
+        updateIntegratorDisplay(); // Update display slider immediately
     });
 
     progressBar?.addEventListener('mousedown', () => isSeeking = true);
@@ -431,19 +488,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     [chunkSizeInput, rewindStepInput, rewindPeriod, rewindOverlap, rewindPlaybackSpeed].forEach(slider => {
-        // Changed from rewindFreq to rewindPeriod
         slider?.addEventListener('input', updateParameterLabels);
     });
 
     // Initialize
-    setSpeedLabel(parseFloat(speedSlider?.value || '1'));
+    setSpeedLabel(speedTarget); // Show target value
+    setActualSpeedLabel(speedActual); // Show actual value
     updateParameterLabels();
     loadDefaultTrack();
+    startSpeedIntegrator(); // Start the leaky integrator
 
     // Cleanup
     window.addEventListener('beforeunload', () => {
         if (currentAudio) URL.revokeObjectURL(currentAudio);
         if (audioContext) audioContext.close();
         if (rewindInterval) clearTimeout(rewindInterval);
+        if (speedIntegratorInterval) clearInterval(speedIntegratorInterval);
     });
 });
