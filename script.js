@@ -33,9 +33,9 @@
     const FADE_TIME = 0.04;
     const DEFAULT_TRACK = 'default_audiobook.mp3';
 
-    // leaky integrator parameters for speed slider
+    // leaky integrator parameters for speed slider (Low Pass Filter
     const TICK_MS = 50; // Update every 50ms
-    const ALPHA = 0.15; // Convergence rate (0-1, higher = faster response)
+    const ALPHA = 0.05; // Convergence rate (0-1, higher = faster response)
     let speedTarget = 1.0; // Target speed from slider
     let speedActual = 1.0; // Actual speed (smoothed)
     let speedIntegratorInterval = null;
